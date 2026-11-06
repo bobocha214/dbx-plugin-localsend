@@ -81,6 +81,7 @@
         font-size: 12.5px; transition: all .15s;
       }
       button:hover:not(:disabled) { background: var(--muted); }
+      [data-dbx-theme="dark"] button:hover:not(:disabled) { background: color-mix(in srgb, var(--muted) 85%, var(--fg) 6%); }
       button:disabled { opacity: .45; cursor: not-allowed; }
       button.primary {
         background: var(--primary); color: var(--primary-fg);
@@ -91,6 +92,7 @@
       button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--destructive) 10%, var(--bg)); }
       button.ghost { background: transparent; border-color: transparent; }
       button.ghost:hover:not(:disabled) { background: var(--muted); }
+      [data-dbx-theme="dark"] button.ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--muted) 85%, var(--fg) 6%); }
       button.icon { width: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
       button.pill { border-radius: 999px; height: 26px; padding: 0 10px; font-size: 11.5px; }
 
@@ -295,11 +297,16 @@
       .qrcode-box { background: #fff; padding: 10px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; }
       .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: var(--line); }
 
-      /* 新建频道 Dialog */
-      .create-ch-row { display: flex; gap: 8px; padding: 8px 12px; }
-      .create-ch-row input {
-        flex: 1; padding: 8px 10px; background: var(--muted); border: none; border-radius: var(--radius); font-size: 12px;
+      /* 新建频道 */
+      .create-ch-row { display: flex; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
+      .create-ch-row input[name="ch-name"] {
+        flex: 1 1 140px; min-width: 0; padding: 8px 10px; background: var(--muted); border: none; border-radius: var(--radius); font-size: 12px;
       }
+      .create-ch-row .pin-wrap { display: flex; gap: 4px; align-items: center; }
+      .create-ch-row .pin-wrap input {
+        width: 110px; padding: 8px 10px; background: var(--muted); border: none; border-radius: var(--radius); font-family: var(--mono); font-size: 12px; letter-spacing: 2px;
+      }
+      .create-ch-row .pin-wrap button { padding: 0 8px; height: 34px; font-size: 11px; }
 
       /* 设置页 */
       .settings-wrap { display: flex; flex: 1; min-height: 0; justify-content: center; padding: 32px 24px; overflow-y: auto; }
@@ -352,9 +359,12 @@
           <div class="layout">
             <!-- 左：频道列表 -->
             <div class="col channels">
-              <div class="create-ch-row" style="flex-wrap: wrap; gap: 6px;">
-                <input type="text" id="newChannelName" placeholder="频道名" style="flex: 1; min-width: 0;" />
-                <input type="text" id="newChannelPIN" placeholder="PIN（留空自动）" style="width: 120px;" maxlength="8" />
+              <div class="create-ch-row">
+                <input type="text" name="ch-name" id="newChannelName" placeholder="频道名" />
+                <div class="pin-wrap">
+                  <input type="text" id="newChannelPIN" placeholder="留空自动" maxlength="8" />
+                  <button class="ghost" id="randomPINBtn" title="随机 PIN">🎲</button>
+                </div>
                 <button class="primary" id="createChBtn">创建</button>
               </div>
               <div class="section-title">我的频道 <span class="count" id="chCount">0</span></div>
@@ -937,6 +947,10 @@
       });
       $('#refreshDevicesBtn').addEventListener('click', refreshDevices);
       $('#createChBtn').addEventListener('click', createChannel);
+      $('#randomPINBtn').addEventListener('click', () => {
+        const b = new Uint8Array(3); crypto.getRandomValues(b);
+        $('#newChannelPIN').value = String((b[0] << 16) | (b[1] << 8) | b[2]).padStart(6, '0').slice(0, 6);
+      });
       $('#cfgAutoStart').addEventListener('click', () => toggleSwitch($('#cfgAutoStart'), !$('#cfgAutoStart').classList.contains('on')));
 
       // ========= init =========
