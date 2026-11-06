@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <!-- two arrows pointing toward an exchange center -->
+  <path d="M7 10 3 14l4 4"/>
+  <path d="M3 14h9"/>
+  <path d="m17 14 4-4-4-4"/>
+  <path d="M21 10h-9"/>
+  <!-- dot in middle -->
+  <circle cx="12" cy="12" r="1.5"/>
+</svg>

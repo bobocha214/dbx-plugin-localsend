@@ -1,0 +1,960 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>局域网快传</title>
+    <script src="vendor/qrcode.min.js"></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: var(--color-background, #ffffff);
+        --fg: var(--color-foreground, #27272a);
+        --card: var(--color-card, #ffffff);
+        --muted: var(--color-muted, #f4f4f5);
+        --muted-fg: var(--color-muted-foreground, #71717a);
+        --border: var(--color-border, #e4e4e7);
+        --input: var(--color-input, #e4e4e7);
+        --primary: var(--color-primary, #2563eb);
+        --primary-fg: var(--color-primary-foreground, #ffffff);
+        --destructive: var(--color-destructive, #e7000b);
+        --success: var(--color-success, #16a34a);
+        --warning: var(--color-warning, #d97706);
+        --radius: var(--radius-md, 6px);
+        --radius-lg: var(--radius-lg, 8px);
+        --font: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif);
+        --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        --line: 1px solid var(--border);
+      }
+      [data-dbx-theme="dark"] {
+        --bg: var(--color-background, #18181b);
+        --fg: var(--color-foreground, #f4f4f5);
+        --card: var(--color-card, #1b1b1f);
+        --muted: var(--color-muted, #27272a);
+        --muted-fg: var(--color-muted-foreground, #a1a1aa);
+        --border: var(--color-border, #3f3f46);
+        --input: var(--color-input, #3f3f46);
+        --primary: var(--color-primary, #60a5fa);
+        --primary-fg: var(--color-primary-foreground, #18181b);
+        --destructive: var(--color-destructive, #f3625f);
+        --success: var(--color-success, #4ade80);
+        --warning: var(--color-warning, #fbbf24);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0; background: var(--bg); color: var(--fg);
+        font-family: var(--font); font-size: 13px; line-height: 1.45;
+        -webkit-font-smoothing: antialiased;
+      }
+      #app { display: flex; flex-direction: column; height: 100%; }
+      .spacer { flex: 1; min-width: 0; }
+
+      /* 顶栏 */
+      .topbar {
+        display: flex; align-items: center; gap: 14px;
+        flex: none; height: 44px; padding: 0 16px;
+        border-bottom: var(--line); background: var(--card);
+      }
+      .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+      .brand-logo {
+        width: 22px; height: 22px; border-radius: 6px;
+        background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+        display: inline-flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 12px; font-weight: 700;
+      }
+      .status-chip {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: 999px;
+        font-size: 11.5px; font-weight: 500;
+        background: var(--muted); color: var(--muted-fg);
+      }
+      .status-chip.running { background: color-mix(in srgb, var(--success) 12%, var(--bg)); color: var(--success); }
+      .status-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-fg); }
+      .status-chip.running .dot { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); }
+
+      button {
+        cursor: pointer; font: inherit; color: var(--fg);
+        background: var(--card); border: 1px solid var(--input);
+        border-radius: var(--radius); padding: 0 12px; height: 32px;
+        font-size: 12.5px; transition: all .15s;
+      }
+      button:hover:not(:disabled) { background: var(--muted); }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      button.primary {
+        background: var(--primary); color: var(--primary-fg);
+        border-color: transparent; font-weight: 500;
+      }
+      button.primary:hover:not(:disabled) { filter: brightness(.94); }
+      button.danger { color: var(--destructive); }
+      button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--destructive) 10%, var(--bg)); }
+      button.ghost { background: transparent; border-color: transparent; }
+      button.ghost:hover:not(:disabled) { background: var(--muted); }
+      button.icon { width: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+      button.pill { border-radius: 999px; height: 26px; padding: 0 10px; font-size: 11.5px; }
+
+      /* Tabs */
+      .tabs {
+        display: flex; gap: 2px; padding: 0 16px;
+        background: var(--card); border-bottom: var(--line);
+      }
+      .tab {
+        padding: 10px 14px; cursor: pointer; font-size: 12.5px;
+        color: var(--muted-fg); border-bottom: 2px solid transparent;
+        margin-bottom: -1px; font-weight: 500;
+      }
+      .tab:hover { color: var(--fg); }
+      .tab.active { color: var(--fg); border-bottom-color: var(--primary); }
+
+      .tab-panel { display: none; flex: 1; min-height: 0; }
+      .tab-panel.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+      /* 三列布局：频道列表 | 聊天区 | 成员 + 文件 */
+      .body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+      .layout {
+        display: grid; grid-template-columns: 240px 1fr 260px;
+        flex: 1; min-height: 0;
+      }
+      .col { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+      .col.channels { border-right: var(--line); background: var(--card); }
+      .col.right { border-left: var(--line); background: var(--card); }
+
+      .section-title {
+        padding: 10px 14px 6px; font-size: 11px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-fg);
+        display: flex; align-items: center; gap: 8px;
+      }
+      .count {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 18px; height: 18px; padding: 0 6px;
+        border-radius: 999px; background: var(--muted); color: var(--muted-fg);
+        font-size: 11px; font-variant-numeric: tabular-nums;
+      }
+      .scroll-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px; }
+
+      /* 频道 / 设备 item */
+      .item {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 12px; border-radius: var(--radius); cursor: pointer;
+      }
+      .item:hover { background: var(--muted); }
+      .item.selected { background: color-mix(in srgb, var(--primary) 15%, var(--bg)); }
+      .avatar {
+        width: 30px; height: 30px; border-radius: 7px; background: var(--muted);
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 600; flex: none; color: var(--fg);
+      }
+      .item.selected .avatar { background: var(--primary); color: #fff; }
+      .meta { flex: 1; min-width: 0; }
+      .meta .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .meta .sub { font-family: var(--mono); font-size: 11px; color: var(--muted-fg); }
+      .pin-chip {
+        font-family: var(--mono); font-size: 11px; font-weight: 600;
+        color: var(--fg); background: var(--muted);
+        padding: 2px 8px; border-radius: 4px; letter-spacing: 1px;
+      }
+      .pin-chip.selected { color: var(--primary); }
+
+      .empty-state {
+        padding: 40px 20px; text-align: center;
+        color: var(--muted-fg); font-size: 12.5px; line-height: 1.6;
+      }
+      .empty-state .hint {
+        display: inline-block; margin-top: 8px; padding: 6px 12px;
+        background: var(--muted); border-radius: var(--radius); font-size: 11.5px;
+      }
+
+      /* ========== 聊天区 ========== */
+      .chat-header {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 14px; border-bottom: var(--line); background: var(--card);
+      }
+      .chat-header h3 { margin: 0; font-size: 13px; }
+      .chat-header .sub { font-size: 11.5px; color: var(--muted-fg); }
+
+      .chat-banner {
+        padding: 10px 14px; background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+        border-bottom: var(--line); font-size: 12px;
+        display: flex; align-items: center; gap: 10px;
+      }
+      .chat-banner button { height: 24px; padding: 0 10px; font-size: 11.5px; }
+
+      /* 消息气泡列表 */
+      .messages {
+        flex: 1; min-height: 0; overflow-y: auto;
+        padding: 14px; display: flex; flex-direction: column; gap: 10px;
+        background: var(--bg);
+      }
+      .msg {
+        display: flex; gap: 10px; max-width: 85%;
+      }
+      .msg.me { align-self: flex-end; flex-direction: row-reverse; }
+      .msg.system { align-self: center; max-width: 100%; }
+
+      .msg-avatar {
+        width: 28px; height: 28px; border-radius: 6px; background: var(--muted);
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 12px; font-weight: 600; flex: none; color: var(--fg);
+      }
+      .msg.me .msg-avatar { background: var(--primary); color: #fff; }
+      .msg.system .msg-avatar { display: none; }
+
+      .msg-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .msg.me .msg-body { align-items: flex-end; }
+
+      .msg-meta {
+        font-size: 10.5px; color: var(--muted-fg);
+        display: flex; gap: 6px; align-items: center;
+      }
+      .msg-bubble {
+        padding: 8px 12px; border-radius: 14px;
+        background: var(--card); border: var(--line);
+        word-wrap: break-word; white-space: pre-wrap;
+        font-size: 13px; line-height: 1.5;
+      }
+      .msg.me .msg-bubble {
+        background: var(--primary); color: var(--primary-fg); border-color: transparent;
+        border-top-right-radius: 4px;
+      }
+      .msg.system .msg-bubble {
+        background: transparent; border: none; padding: 4px 10px;
+        color: var(--muted-fg); font-size: 11.5px; font-style: italic;
+        text-align: center; max-width: 100%;
+      }
+      .msg.file .msg-bubble {
+        background: var(--muted); border: var(--line); padding: 8px 10px;
+        display: flex; align-items: center; gap: 8px;
+      }
+      .msg.file .msg-bubble .file-icon {
+        width: 24px; height: 24px; border-radius: 5px;
+        background: var(--primary); color: #fff; font-size: 11px; font-weight: 700;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .msg.file .msg-bubble .file-info { font-size: 12px; min-width: 0; }
+      .msg.file .msg-bubble .file-info .fname { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .msg.file .msg-bubble .file-info .fmeta { font-size: 10.5px; color: var(--muted-fg); }
+
+      /* 聊天输入 */
+      .chat-input-area {
+        flex: none; padding: 10px 12px; border-top: var(--line); background: var(--card);
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .chat-input-row { display: flex; gap: 6px; align-items: flex-end; }
+      .chat-input-row textarea {
+        flex: 1; min-height: 36px; max-height: 120px; resize: none;
+        font: inherit; color: var(--fg); background: var(--muted);
+        border: none; border-radius: var(--radius); padding: 8px 10px;
+        outline: none; line-height: 1.4;
+      }
+      .chat-input-row textarea:focus { background: var(--bg); box-shadow: 0 0 0 1px var(--primary) inset; }
+
+      .chat-quick-row {
+        display: flex; gap: 6px; align-items: center;
+      }
+      .chat-quick-row label.file-btn {
+        display: inline-flex; align-items: center; gap: 4px;
+        cursor: pointer; font-size: 11.5px; color: var(--muted-fg);
+        padding: 4px 10px; border-radius: 999px; background: var(--muted);
+      }
+      .chat-quick-row label.file-btn:hover { color: var(--fg); }
+      .chat-quick-row input[type="file"] { display: none; }
+
+      /* ========== 右侧：成员 + 文件 ========== */
+      .right-panel { padding: 0 12px 12px; }
+      .right-panel .member, .right-panel .f-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 8px; border-radius: var(--radius);
+        font-size: 12px;
+      }
+      .right-panel .member:hover, .right-panel .f-row:hover { background: var(--muted); }
+      .right-panel .member .badge {
+        font-size: 10px; padding: 1px 5px; border-radius: 3px;
+        background: var(--primary); color: var(--primary-fg); font-weight: 600;
+      }
+      .right-panel .member.ip { font-family: var(--mono); font-size: 11px; color: var(--muted-fg); }
+      .right-panel .f-row .fname { font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+      .right-panel .f-row .fsize { font-size: 10.5px; color: var(--muted-fg); }
+
+      /* ========== Modal ========== */
+      .modal-backdrop {
+        position: fixed; inset: 0; background: rgba(0,0,0,.5); backdrop-filter: blur(4px);
+        display: flex; align-items: center; justify-content: center; z-index: 100;
+      }
+      .modal {
+        background: var(--card); border: var(--line); border-radius: var(--radius-lg);
+        padding: 24px; width: 460px; max-width: 92vw;
+        box-shadow: 0 20px 60px rgba(0,0,0,.3);
+      }
+      .modal h3 { margin: 0 0 16px; font-size: 14px; font-weight: 600; }
+      .modal-body { display: grid; grid-template-columns: 1fr auto; gap: 20px; }
+      .modal-col { display: flex; flex-direction: column; gap: 10px; }
+      .modal-row-label { font-size: 11px; color: var(--muted-fg); text-transform: uppercase; letter-spacing: .04em; font-weight: 500; }
+      .modal-row-value { font-family: var(--mono); font-size: 12px; word-break: break-all; background: var(--muted); padding: 8px; border-radius: var(--radius); }
+      .pin-big { font-family: var(--mono); font-size: 24px; font-weight: 700; letter-spacing: 6px; padding: 10px 18px; background: var(--muted); border-radius: var(--radius); text-align: center; }
+      .qrcode-box { background: #fff; padding: 10px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; }
+      .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: var(--line); }
+
+      /* 新建频道 Dialog */
+      .create-ch-row { display: flex; gap: 8px; padding: 8px 12px; }
+      .create-ch-row input {
+        flex: 1; padding: 8px 10px; background: var(--muted); border: none; border-radius: var(--radius); font-size: 12px;
+      }
+
+      /* 设置页 */
+      .settings-wrap { display: flex; flex: 1; min-height: 0; justify-content: center; padding: 32px 24px; overflow-y: auto; }
+      .settings-card { width: min(680px, 100%); background: var(--card); border: var(--line); border-radius: var(--radius-lg); padding: 24px; }
+      .settings-card h2 { margin: 0 0 4px; font-size: 16px; }
+      .settings-card .desc { margin: 0 0 20px; color: var(--muted-fg); font-size: 12.5px; }
+      .running-status-box { padding: 12px 14px; border-radius: var(--radius); background: color-mix(in srgb, var(--success) 8%, var(--bg)); border: 1px solid color-mix(in srgb, var(--success) 20%, transparent); display: flex; align-items: center; gap: 10px; font-size: 12.5px; margin-bottom: 20px; }
+      .running-status-box.stopped { background: var(--muted); border-color: var(--border); }
+      .running-status-box .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); flex: none; }
+      .running-status-box.stopped .status-dot { background: var(--muted-fg); }
+      .running-status-box .info .line1 { font-weight: 600; }
+      .running-status-box .info .line2 { font-size: 11.5px; color: var(--muted-fg); margin-top: 2px; }
+      .form-grid { display: grid; grid-template-columns: 160px 1fr auto; gap: 10px 16px; align-items: center; }
+      .form-grid label { font-size: 12.5px; color: var(--fg); font-weight: 500; }
+      .form-grid label .hint { display: block; font-weight: 400; font-size: 11px; color: var(--muted-fg); margin-top: 2px; }
+      .form-grid input, .form-grid select { font: inherit; color: var(--fg); background: var(--muted); border: none; border-radius: var(--radius); padding: 8px 10px; outline: none; height: 36px; width: 100%; }
+      .form-grid input:focus, .form-grid select:focus { background: var(--bg); border: 1px solid var(--primary); }
+      .settings-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 18px; margin-top: 18px; border-top: var(--line); }
+      .switch { position: relative; width: 36px; height: 20px; flex: none; background: var(--border); border-radius: 999px; cursor: pointer; transition: background .2s; }
+      .switch.on { background: var(--primary); }
+      .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .2s; }
+      .switch.on::after { left: 18px; }
+      .switch-wrap { display: flex; align-items: center; gap: 10px; }
+
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="topbar">
+        <div class="brand"><span class="brand-logo">快</span>局域网快传</div>
+        <div class="status-chip" id="statusChip"><span class="dot"></span><span id="statusChipText">未启动</span></div>
+        <div class="spacer"></div>
+        <div class="quick-actions">
+          <button class="pill ghost" id="refreshDevicesBtn">在线设备</button>
+          <button class="pill danger" id="cfgStopBtn" disabled>停止</button>
+          <button class="pill primary" id="cfgStartBtn">启动</button>
+        </div>
+      </div>
+
+      <!-- Tabs: 聊天 | 设置 -->
+      <div class="tabs">
+        <div class="tab active" data-tab="chat">频道聊天</div>
+        <div class="tab" data-tab="settings">设置</div>
+      </div>
+
+      <!-- 聊天页：三列 -->
+      <div class="body">
+        <div class="tab-panel active" data-panel="chat">
+          <div class="layout">
+            <!-- 左：频道列表 -->
+            <div class="col channels">
+              <div class="create-ch-row" style="flex-wrap: wrap; gap: 6px;">
+                <input type="text" id="newChannelName" placeholder="频道名" style="flex: 1; min-width: 0;" />
+                <input type="text" id="newChannelPIN" placeholder="PIN（留空自动）" style="width: 120px;" maxlength="8" />
+                <button class="primary" id="createChBtn">创建</button>
+              </div>
+              <div class="section-title">我的频道 <span class="count" id="chCount">0</span></div>
+              <div class="scroll-list" id="channelList">
+                <div class="empty-state">
+                  还没有频道<br/>
+                  <span class="hint">上面输入名字 → 创建</span>
+                </div>
+              </div>
+              <div class="section-title">在线设备 <span class="count" id="devCount">0</span></div>
+              <div class="scroll-list" id="deviceList">
+                <div class="empty-state" style="padding: 20px 12px;">
+                  <span class="hint">"启动"后自动扫描局域网</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 中：聊天区 -->
+            <div class="col chat-center" id="chatCenter" style="background: var(--bg);">
+              <div class="empty-state" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+                左侧创建或选中一个频道开始聊天<br/>
+                <span class="hint">公有频道任何人扫码都能加入</span>
+              </div>
+            </div>
+
+            <!-- 右：成员 + 频道文件 -->
+            <div class="col right" id="rightCol">
+              <div class="empty-state" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+                选中频道查看成员和文件
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 设置页 -->
+        <div class="tab-panel" data-panel="settings">
+          <div class="settings-wrap">
+            <div class="settings-card">
+              <h2>局域网快传 · 设置</h2>
+              <p class="desc">配置本机服务行为。改完点"保存并应用"会自动重启。</p>
+              <div class="running-status-box" id="runningBox">
+                <div class="status-dot"></div>
+                <div class="info">
+                  <div class="line1" id="runningTitle">服务未启动</div>
+                  <div class="line2" id="runningSub">启动后才能扫描设备和创建频道</div>
+                </div>
+              </div>
+              <div class="settings-section">
+                <div class="section-title" style="padding:0; margin-bottom:10px;">身份</div>
+                <div class="form-grid">
+                  <label>显示昵称<span class="hint">局域网内其他人看到的名字，可自定义</span></label>
+                  <input type="text" id="cfgNickname" placeholder="本机昵称">
+                </div>
+                <div class="form-grid" style="margin-top: 12px;">
+                  <label>唯一 ID<span class="hint">MAC@IP，自动生成。换网卡会变。用来区分不同设备</span></label>
+                  <input type="text" id="cfgUniqueId" readonly style="background: var(--muted); font-family: var(--mono); cursor: default;">
+                </div>
+                <div class="form-grid" style="margin-top: 12px;">
+                  <label>MAC 地址<span class="hint">选定网卡的硬件地址</span></label>
+                  <input type="text" id="cfgMAC" readonly style="background: var(--muted); font-family: var(--mono); cursor: default;">
+                </div>
+              </div>
+              <div class="settings-section" style="margin-top: 22px;">
+                <div class="section-title" style="padding:0; margin-bottom:10px;">网络</div>
+                <div class="form-grid">
+                  <label>选择网卡<span class="hint">auto = 自动挑一块可用的；或指定名字/IP/序号</span></label>
+                  <select id="cfgIf"><option value="auto">auto（自动选择推荐网卡）</option></select>
+                  <button class="ghost" id="refreshIfBtn">刷新</button>
+                </div>
+                <div class="form-grid" style="margin-top: 12px;">
+                  <label>监听端口<span class="hint">默认 53317，被占用可改</span></label>
+                  <input type="number" id="cfgPort" min="1024" max="65535">
+                </div>
+              </div>
+              <div class="settings-section" style="margin-top: 22px;">
+                <div class="section-title" style="padding:0; margin-bottom:10px;">文件接收</div>
+                <div class="form-grid">
+                  <label>接收目录<span class="hint">对方发给你的文件、频道聊天记录都放这里</span></label>
+                  <input type="text" id="cfgSaveDir" placeholder="Documents/LocalSend">
+                  <button class="ghost" id="pickFolderBtn">浏览...</button>
+                </div>
+              </div>
+              <div class="settings-section" style="margin-top: 22px;">
+                <div class="section-title" style="padding:0; margin-bottom:10px;">启动行为</div>
+                <div class="form-grid">
+                  <label>自动启动<span class="hint">下次打开工作台时自动拉起服务</span></label>
+                  <div class="switch-wrap"><div class="switch" id="cfgAutoStart"></div></div>
+                </div>
+              </div>
+              <div class="settings-footer">
+                <button id="cfgSaveOnlyBtn">仅保存配置</button>
+                <button class="primary" id="cfgApplyBtn">保存并应用（重启）</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="modalRoot" style="display:none;"></div>
+
+    <!-- 后端文件选择器 -->
+    <input type="file" id="filePicker" multiple style="display:none;">
+    <input type="file" id="folderPicker" webkitdirectory directory multiple style="display:none;">
+
+    <script>
+      const bridge = window.dbxPlugin;
+      const state = {
+        context: null, running: false, config: null, interfaces: [],
+        channels: [], selectedChannel: null, selectedDevice: null, devices: [],
+        me: { id: '', name: '', ip: '' },
+      };
+      const $ = sel => document.querySelector(sel);
+      const invoke = (m, p = {}) => bridge.invoke(m, p, { timeoutMs: 10000 });
+      const humanSize = (b) => !b ? '0 B' :
+        b < 1024 ? b + ' B' :
+        b < 1024*1024 ? (b/1024).toFixed(1)+' KB' :
+        b < 1024*1024*1024 ? (b/1024/1024).toFixed(1)+' MB' :
+        (b/1024/1024/1024).toFixed(2)+' GB';
+      const fmtTime = (t) => { try { const d = new Date(t); return d.toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' }); } catch { return ''; } };
+
+      // ========= 渲染工具 =========
+      function setStatusChip(running, info) {
+        const chip = $('#statusChip');
+        chip.classList.toggle('running', !!running);
+        $('#statusChipText').textContent = running ? `运行中 · ${info || ''}` : '未启动';
+        $('#cfgStartBtn').disabled = running;
+        $('#cfgStopBtn').disabled = !running;
+      }
+      function toggleSwitch(el, on) { el.classList.toggle('on', !!on); }
+
+      // ========= 设置 =========
+      async function refreshInterfaces() {
+        try {
+          const res = await invoke('localsend/interfaces');
+          state.interfaces = res.interfaces || [];
+          const sel = $('#cfgIf');
+          const recommended = res.recommended;
+          sel.innerHTML = '<option value="auto">auto（自动选择推荐网卡）</option>';
+          state.interfaces.forEach(i => {
+            if (!i.isUp || i.isLoop) return;
+            const label = `${i.name}${i.ipv4.length ? '  [' + i.ipv4.join(', ') + ']' : ''}`;
+            const opt = document.createElement('option');
+            opt.value = i.name; opt.textContent = (i.name === recommended ? '★ ' : '') + label;
+            if (i.name === recommended) opt.classList.add('recommended');
+            sel.appendChild(opt);
+          });
+          if (state.config?.networkInterface) sel.value = state.config.networkInterface;
+        } catch (e) { console.error(e); }
+      }
+      function renderConfigUI() {
+        const cfg = state.config || {};
+        $('#cfgNickname').value = cfg.nickname || '';
+        $('#cfgUniqueId').value = cfg.uniqueId || '';
+        $('#cfgMAC').value = cfg.mac || '';
+        $('#cfgPort').value = cfg.port || 53317;
+        $('#cfgSaveDir').value = cfg.saveDir || '';
+        toggleSwitch($('#cfgAutoStart'), !!cfg.autoStart);
+        if (cfg.networkInterface) $('#cfgIf').value = cfg.networkInterface;
+        const box = $('#runningBox'); box.classList.toggle('stopped', !state.running);
+        $('#runningTitle').textContent = state.running ? '服务运行中' : '服务未启动';
+        $('#runningSub').textContent = state.running
+          ? `昵称 ${cfg.nickname||''} · 端口 ${cfg.port} · 网卡 ${cfg.networkInterface||'auto'} · 本机 ${state.localIp||'—'} · MAC ${cfg.mac||'—'}`
+          : '保存好配置点右上"启动"';
+      }
+      async function loadConfig() { try { const r = await invoke('config/get'); state.config = r.config; renderConfigUI(); } catch(e){} }
+      async function saveConfigOnly() {
+        const patch = {
+          nickname: $('#cfgNickname').value.trim(),
+          port: parseInt($('#cfgPort').value, 10),
+          saveDir: $('#cfgSaveDir').value.trim(),
+          networkInterface: $('#cfgIf').value,
+          autoStart: $('#cfgAutoStart').classList.contains('on'),
+        };
+        const r = await invoke('config/set', patch);
+        if (r.success) state.config = r.config;
+        return r;
+      }
+      async function startService() { if (!(await saveConfigOnly()).success) return; await invoke('config/start'); await refreshStatus(); await refreshDevices(); await refreshChannels(); }
+      async function stopService() { await invoke('config/stop'); await refreshStatus(); }
+      async function refreshStatus() {
+        const r = await invoke('config/status');
+        state.running = r.running; state.config = r.config; state.localIp = r.localIp;
+        renderConfigUI(); setStatusChip(r.running, r.running ? `${r.localIp||''}:${r.config.port}` : '');
+      }
+
+      // ========= 频道 =========
+      async function refreshChannels() {
+        try {
+          const r = await invoke('channel/list');
+          state.channels = r.channels || [];
+          $('#chCount').textContent = state.channels.length;
+          const list = $('#channelList');
+          if (!state.channels.length) {
+            list.innerHTML = `<div class="empty-state" style="padding:16px 10px;">还没有频道<br/><span class="hint">上面输入名字 → 创建</span></div>`;
+            renderChatCenter(); renderRightCol(); return;
+          }
+          list.innerHTML = '';
+          state.channels.forEach(ch => {
+            const item = document.createElement('div');
+            item.className = 'item' + (state.selectedChannel?.id === ch.id ? ' selected' : '');
+            const unread = 0; // TODO: 未读计数
+            item.innerHTML = `
+              <div class="avatar">#</div>
+              <div class="meta">
+                <div class="name">${ch.name}</div>
+                <div class="sub">${ch.members.length} 成员 · ${ch.files.length} 文件</div>
+              </div>
+              <div class="pin-chip ${state.selectedChannel?.id === ch.id ? 'selected' : ''}">${ch.pin}</div>`;
+            item.addEventListener('click', () => {
+              state.selectedChannel = ch; refreshChannels(); renderChatCenter(); renderRightCol();
+            });
+            list.appendChild(item);
+          });
+        } catch (e) { console.error(e); }
+      }
+      async function createChannel() {
+        const name = $('#newChannelName').value.trim() || '私有频道';
+        const pin = $('#newChannelPIN').value.trim();
+        try {
+          const res = await invoke('channel/create', { name, pin });
+          if (!res.id) { alert('创建失败: ' + (res.message||'')); return; }
+          state.selectedChannel = res; $('#newChannelName').value = ''; $('#newChannelPIN').value = '';
+          await refreshChannels(); renderChatCenter(); renderRightCol();
+        } catch (e) { alert('创建失败: ' + (e.message||e)); }
+      }
+      async function deleteChannel() {
+        const ch = state.selectedChannel;
+        if (!ch) return;
+        if (ch.name === '大厅') { alert('默认大厅不能删除'); return; }
+        if (!confirm(`确认删除频道 "${ch.name}"？所有成员会被移除，聊天记录和文件一并删除。`)) return;
+        await invoke('channel/delete', { id: ch.id });
+        state.selectedChannel = null;
+        await refreshChannels(); renderChatCenter(); renderRightCol();
+      }
+
+      // ========= 设备（可点击发起私聊 / 发文件到频道）=========
+      async function refreshDevices() {
+        if (!state.running) return;
+        try {
+          await invoke('localsend/scan');
+          const r = await invoke('localsend/devices');
+          state.devices = r.devices || [];
+          $('#devCount').textContent = state.devices.length;
+          const list = $('#deviceList');
+          if (!state.devices.length) { list.innerHTML = `<div class="empty-state" style="padding:16px 10px;">暂无在线设备</div>`; return; }
+          list.innerHTML = '';
+          state.devices.forEach(d => {
+            const item = document.createElement('div');
+            item.className = 'item' + (state.selectedDevice?.fingerprint === d.fingerprint ? ' selected' : '');
+            item.innerHTML = `
+              <div class="avatar">${(d.name||'?').slice(0,1).toUpperCase()}</div>
+              <div class="meta">
+                <div class="name">${d.name || 'Unknown'}</div>
+                <div class="sub">${d.ip}:${d.port}</div>
+              </div>`;
+            item.addEventListener('click', () => {
+              state.selectedDevice = d;
+              // 选中设备后把它加入当前频道的快捷提示
+              if (state.selectedChannel) {
+                joinMemberFromDevice(d);
+              } else {
+                alert('选中设备后请先创建或选中一个频道，对方扫码/加入后就能互发消息和文件了');
+              }
+              refreshDevices();
+            });
+            list.appendChild(item);
+          });
+        } catch (e) { console.error(e); }
+      }
+      async function joinMemberFromDevice(d) {
+        await invoke('channel/join', {
+          channelId: state.selectedChannel.id,
+          name: d.name, ip: d.ip, memberId: d.fingerprint,
+        });
+        await refreshChannels(); renderChatCenter(); renderRightCol();
+      }
+
+      // ========= 聊天渲染 =========
+      function renderChatCenter() {
+        const center = $('#chatCenter');
+        if (!state.selectedChannel) {
+          center.innerHTML = `<div class="empty-state" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+            左侧创建或选中一个频道开始聊天<br/><span class="hint">公有频道任何人扫码都能加入</span></div>`;
+          return;
+        }
+        const ch = state.selectedChannel;
+        const msgs = ch.messages || [];
+        const memberIDs = (ch.members || []).map(m => m.id);
+        const mine = state.me.id || memberIDs[0] || 'me';
+
+        const renderBubble = (m) => {
+          const isMe = m.sender === state.me.name || m.senderId === mine;
+          if (m.type === 'system') {
+            return `<div class="msg system"><div class="msg-bubble">${escapeHtml(m.content)}</div></div>`;
+          }
+          if (m.type === 'file') {
+            return `<div class="msg file ${isMe ? 'me' : ''}">
+              <div class="msg-avatar">${(m.sender||'?').slice(0,1).toUpperCase()}</div>
+              <div class="msg-body">
+                <div class="msg-meta"><span>${escapeHtml(m.sender || 'Unknown')}</span><span>·</span><span>${fmtTime(m.createdAt)}</span></div>
+                <div class="msg-bubble">
+                  <div class="file-icon">FILE</div>
+                  <div class="file-info">
+                    <div class="fname">${escapeHtml(m.content)}</div>
+                    <div class="fmeta">频道内可直接下载</div>
+                  </div>
+                </div>
+              </div>
+            </div>`;
+          }
+          // text
+          return `<div class="msg ${isMe ? 'me' : ''}">
+            <div class="msg-avatar">${(m.sender||'?').slice(0,1).toUpperCase()}</div>
+            <div class="msg-body">
+              <div class="msg-meta"><span>${escapeHtml(m.sender || 'Unknown')}</span><span>·</span><span>${fmtTime(m.createdAt)}</span></div>
+              <div class="msg-bubble">${escapeHtml(m.content)}</div>
+            </div>
+          </div>`;
+        };
+
+        center.innerHTML = `
+          <div class="chat-header">
+            <div class="avatar">#</div>
+            <div style="flex:1; min-width:0;">
+              <h3>${escapeHtml(ch.name)} <span class="pin-chip" style="margin-left:6px;">${ch.visibility === 'public' ? '公有' : '私有'}</span></h3>
+              <div class="sub">${ch.members.length} 成员 · ${ch.files.length} 文件 · PIN ${ch.pin} · 端口 ${ch.port || '—'}</div>
+            </div>
+            <button class="pill ghost" id="chSettingsBtn">⚙ 设置</button>
+            <button class="pill ghost" id="shareBtn">分享</button>
+            <button class="pill danger" id="deleteChBtn">删除</button>
+          </div>
+          <div class="chat-banner">
+            <span>${ch.visibility === 'public'
+              ? '🌐 公有频道：任何人扫码或输入链接 + PIN 即可加入'
+              : '🔒 私有频道：仅持有链接 + PIN 的人可加入'}</span>
+            <div class="spacer"></div>
+            <button id="refreshMsgsBtn">刷新消息</button>
+          </div>
+          <div class="messages" id="msgList">${msgs.map(renderBubble).join('')}</div>
+          <div class="chat-input-area">
+            <div class="chat-quick-row">
+              <label class="file-btn">
+                <span>📎 选文件加入频道</span>
+                <input type="file" id="filePickerBtn" multiple>
+              </label>
+              <label class="file-btn" id="folderBtn">
+                <span>📁 选文件夹</span>
+                <input type="file" id="folderPickerBtn" webkitdirectory directory multiple>
+              </label>
+            </div>
+            <div class="chat-input-row">
+              <textarea id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行..." rows="1"></textarea>
+              <button class="primary" id="sendMsgBtn">发送</button>
+            </div>
+          </div>`;
+
+        // 事件
+        $('#shareBtn').addEventListener('click', showShare);
+        $('#deleteChBtn').addEventListener('click', deleteChannel);
+        $('#chSettingsBtn').addEventListener('click', openChSettings);
+        $('#refreshMsgsBtn').addEventListener('click', async () => { await refreshChannels(); });
+        const input = $('#chatInput');
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+        });
+        input.addEventListener('input', () => {
+          input.style.height = 'auto';
+          input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        });
+        $('#sendMsgBtn').addEventListener('click', sendMessage);
+        $('#filePickerBtn').addEventListener('change', onFilePicked);
+        $('#folderPickerBtn').addEventListener('change', onFolderPicked);
+
+        // 滚到底
+        const list = $('#msgList');
+        if (list) list.scrollTop = list.scrollHeight;
+      }
+
+      async function sendMessage() {
+        const input = $('#chatInput');
+        const content = input.value.trim();
+        if (!content) return;
+        input.value = '';
+        await invoke('channel/message', {
+          channelId: state.selectedChannel.id,
+          senderId: state.me.id,
+          sender: state.me.name || state.config?.nickname || '我',
+          content, type: 'text',
+        });
+        await refreshChannels();
+      }
+
+      function onFilePicked(e) {
+        const files = Array.from(e.target.files);
+        addFilesToChannel(files.map(f => ({ name: f.name, size: f.size })));
+        e.target.value = '';
+      }
+      function onFolderPicked(e) {
+        // webkitdirectory 里每个 file.webkitRelativePath 都带文件夹名前缀
+        const files = Array.from(e.target.files);
+        addFilesToChannel(files.map(f => ({ name: f.webkitRelativePath || f.name, size: f.size })));
+        e.target.value = '';
+      }
+      async function addFilesToChannel(entries) {
+        for (const f of entries) {
+          await invoke('channel/add-file', {
+            channelId: state.selectedChannel.id,
+            file: { id: crypto.randomUUID(), fileName: f.name, size: f.size || 0, mimeType: '' },
+          });
+          await invoke('channel/message', {
+            channelId: state.selectedChannel.id,
+            senderId: state.me.id, sender: state.me.name || state.config?.nickname || '我',
+            content: f.name, type: 'file',
+          });
+        }
+        await refreshChannels();
+      }
+
+      // ========= 右侧 =========
+      function renderRightCol() {
+        const col = $('#rightCol');
+        if (!state.selectedChannel) {
+          col.innerHTML = `<div class="empty-state" style="flex:1;">选中频道查看成员和文件</div>`;
+          return;
+        }
+        const ch = state.selectedChannel;
+        const memberRows = (ch.members || []).map(m => `
+          <div class="member">
+            <div class="avatar">${(m.name||'?').slice(0,1).toUpperCase()}</div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:500;">${escapeHtml(m.name || 'Unknown')} ${m.isOwner ? '<span class="badge">owner</span>' : ''}</div>
+              <div class="ip">${escapeHtml(m.ip || '')}</div>
+            </div>
+          </div>`).join('');
+
+        const fileRows = (ch.files || []).map((f, idx) => `
+          <div class="f-row">
+            <div class="avatar" style="width:22px; height:22px; font-size:10px;">F</div>
+            <div class="fname" title="${escapeHtml(f.fileName)}">${escapeHtml(f.fileName)}</div>
+            <div class="fsize">${humanSize(f.size)}</div>
+            <button class="icon ghost" data-fid="${f.id}" title="移除">✕</button>
+          </div>`).join('');
+
+        col.innerHTML = `
+          <div class="section-title">成员 · ${ch.members.length}</div>
+          <div class="right-panel" style="max-height:35%; overflow-y:auto;">${memberRows || '<div class="empty-state" style="padding:20px 0;">暂无成员</div>'}</div>
+          <div class="section-title">频道文件 · ${ch.files.length}</div>
+          <div class="right-panel" style="flex:1; overflow-y:auto;">${fileRows || '<div class="empty-state" style="padding:20px 0;">聊天框📎按钮加文件</div>'}</div>`;
+
+        col.querySelectorAll('[data-fid]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            await invoke('channel/remove-file', { channelId: state.selectedChannel.id, fileId: btn.dataset.fid });
+            await refreshChannels();
+          });
+        });
+      }
+
+      // ========= 频道设置 Modal =========
+      function openChSettings() {
+        const ch = state.selectedChannel; if (!ch) return;
+        const isLobby = ch.name === '大厅';
+        const root = $('#modalRoot'); root.style.display = 'flex'; root.innerHTML = `
+          <div class="modal-backdrop">
+            <div class="modal" style="width:420px;">
+              <h3>频道设置 · ${escapeHtml(ch.name)}</h3>
+              <div style="display:flex; flex-direction:column; gap:14px;">
+                <div>
+                  <div class="modal-row-label">频道名称</div>
+                  <input type="text" id="chSetName" value="${escapeHtml(ch.name)}" style="width:100%; padding:8px 10px; background:var(--muted); border:none; border-radius:var(--radius); font-size:12px;">
+                </div>
+                <div>
+                  <div class="modal-row-label">PIN 码（留空自动生成）</div>
+                  <input type="text" id="chSetPIN" value="${escapeHtml(ch.pin)}" maxlength="8" style="width:100%; padding:8px 10px; background:var(--muted); border:none; border-radius:var(--radius); font-family:var(--mono); font-size:12px;">
+                </div>
+                <div>
+                  <div class="modal-row-label">可见性</div>
+                  <select id="chSetVis" ${isLobby ? 'disabled' : ''} style="width:100%; padding:8px 10px; background:var(--muted); border:none; border-radius:var(--radius); font-size:12px;">
+                    <option value="public" ${ch.visibility==='public'?'selected':''}>🌐 公有（任何人可加入）</option>
+                    <option value="private" ${ch.visibility==='private'?'selected':''}>🔒 私有（需链接+PIN）</option>
+                  </select>
+                  ${isLobby ? '<div style="font-size:11px; color:var(--muted-fg); margin-top:4px;">大厅强制公有，不可切换</div>' : ''}
+                </div>
+                <div style="font-size:11px; color:var(--muted-fg);">
+                  频道 ID · ${ch.id}<br>
+                  成员 ${ch.members.length} · 文件 ${ch.files.length} · 端口 ${ch.port || '—'}
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button id="cancelChSetBtn">取消</button>
+                <button class="primary" id="saveChSetBtn">保存</button>
+              </div>
+            </div>
+          </div>`;
+        const close = () => { root.style.display = 'none'; root.innerHTML = ''; };
+        root.querySelector('#cancelChSetBtn').addEventListener('click', close);
+        root.querySelector('.modal-backdrop').addEventListener('click', (e) => { if (e.target.classList.contains('modal-backdrop')) close(); });
+        root.querySelector('#saveChSetBtn').addEventListener('click', async () => {
+          const patch = {
+            id: ch.id,
+            name: root.querySelector('#chSetName').value.trim(),
+            pin: root.querySelector('#chSetPIN').value.trim(),
+            visibility: root.querySelector('#chSetVis').value,
+          };
+          const res = await invoke('channel/update', patch);
+          if (!res.success) { alert(res.message || '保存失败'); return; }
+          close();
+          await refreshChannels(); renderChatCenter(); renderRightCol();
+        });
+      }
+
+      // ========= 分享 Modal =========
+      async function showShare() {
+        if (!state.selectedChannel) return;
+        const r = await invoke('channel/share-url', { id: state.selectedChannel.id });
+        const root = $('#modalRoot'); root.style.display = 'flex'; root.innerHTML = `
+          <div class="modal-backdrop">
+            <div class="modal">
+              <h3>分享频道 · ${escapeHtml(r.name)}（${(r.members||[]).length} 成员 · ${(r.files||[]).length} 文件）</h3>
+              <div class="modal-body">
+                <div class="modal-col">
+                  <div><div class="modal-row-label">分享链接</div><div class="modal-row-value">${r.url}</div></div>
+                  <div><div class="modal-row-label">PIN 码</div><div class="pin-big">${r.pin}</div></div>
+                  <div style="font-size:11.5px; color:var(--muted-fg); line-height:1.6;">
+                    对方扫码或粘贴链接到"局域网快传"，输入 PIN 即可加入频道、互发消息和文件。<br/>
+                    删除频道后链接自动失效。
+                  </div>
+                </div>
+                <div class="qrcode-box" id="qrBox"></div>
+              </div>
+              <div class="modal-footer">
+                <button id="copyUrlBtn">复制链接</button>
+                <button id="closeModalBtn" class="primary">完成</button>
+              </div>
+            </div>
+          </div>`;
+        try {
+          if (typeof QRCode !== 'undefined') {
+            new QRCode(root.querySelector('#qrBox'), { text: r.url, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M });
+          } else {
+            root.querySelector('#qrBox').textContent = '二维码库未加载';
+          }
+        } catch (e) { console.warn('qr', e); }
+        root.querySelector('#copyUrlBtn').addEventListener('click', async () => {
+          await navigator.clipboard.writeText(r.url); $('#copyUrlBtn').textContent = '✓ 已复制';
+        });
+        const close = () => { root.style.display = 'none'; root.innerHTML = ''; };
+        root.querySelector('#closeModalBtn').addEventListener('click', close);
+        root.querySelector('.modal-backdrop').addEventListener('click', (e) => { if (e.target.classList.contains('modal-backdrop')) close(); });
+      }
+
+      // ========= 工具 =========
+      function escapeHtml(s) {
+        return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+      }
+
+      // ========= Tabs =========
+      document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.querySelector(`.tab-panel[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+        if (tab.dataset.tab === 'settings') refreshInterfaces();
+      }));
+
+      // ========= 事件 =========
+      $('#cfgSaveOnlyBtn').addEventListener('click', async () => { const r = await saveConfigOnly(); alert(r.success ? '已保存' : '保存失败: ' + r.message); });
+      $('#cfgApplyBtn').addEventListener('click', () => startService());
+      $('#cfgStartBtn').addEventListener('click', startService);
+      $('#cfgStopBtn').addEventListener('click', stopService);
+      $('#refreshIfBtn').addEventListener('click', refreshInterfaces);
+      $('#pickFolderBtn').addEventListener('click', async () => {
+        try {
+          const r = await invoke('folder/pick');
+          if (r.cancelled) { return; }
+          if (r.path) { $('#cfgSaveDir').value = r.path; }
+        } catch (e) {
+          alert('选择目录失败（仅 Windows 支持）: ' + (e.message||e));
+        }
+      });
+      $('#refreshDevicesBtn').addEventListener('click', refreshDevices);
+      $('#createChBtn').addEventListener('click', createChannel);
+      $('#cfgAutoStart').addEventListener('click', () => toggleSwitch($('#cfgAutoStart'), !$('#cfgAutoStart').classList.contains('on')));
+
+      // ========= init =========
+      async function init() {
+        state.context = await bridge.ready;
+        state.me.name = state.config?.nickname || '';
+        state.me.id = state.config?.uniqueId || '';
+        await Promise.all([loadConfig(), refreshInterfaces(), refreshStatus()]);
+        await refreshChannels();
+        await refreshDevices();
+        // 每秒刷新消息（简单轮询，有 emitter 后可替换）
+        setInterval(async () => {
+          if (state.selectedChannel) {
+            try { await refreshChannels(); } catch(e){}
+          }
+        }, 3000);
+      }
+      init().catch(e => console.error('init', e));
+    </script>
+  </body>
+</html>
