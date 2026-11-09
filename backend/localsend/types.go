@@ -8,19 +8,6 @@ const (
 	ProtocolVersion  = 2
 )
 
-// DeviceInfo 表示一个发现到的 LocalSend 设备
-type DeviceInfo struct {
-	Fingerprint string   `json:"fingerprint"`
-	IP          string   `json:"ip"`
-	Port        int      `json:"port"`
-	Name        string   `json:"name"`
-	DeviceModel string   `json:"deviceModel,omitempty"`
-	DeviceType  string   `json:"deviceType"` // mobile, desktop, web, server
-	Protocol    string   `json:"protocol"`   // http, https
-	Download    bool     `json:"download"`   // 是否支持反向下载
-	Hash        string   `json:"hash,omitempty"`
-}
-
 // Announce 是 UDP 广播的数据结构（v2）
 type Announce struct {
 	Alias       string `json:"alias"`
@@ -64,6 +51,9 @@ type FileMetadata struct {
 	Size     int64  `json:"size"`
 	MIME     string `json:"mimeType"`
 	Hash     string `json:"hash,omitempty"`
+
+	// LocalPath 文件在本机频道目录里的落盘路径（不对外暴露，Snapshot 会清空）
+	LocalPath string `json:"localPath,omitempty"`
 }
 
 // SendRequest v2 发送请求

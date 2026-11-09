@@ -9,6 +9,29 @@ import (
 	"time"
 )
 
+// DeviceTtl 设备在没有新 announce 到达多久后标记离线
+const DeviceTtl = 10 * time.Second
+
+// DeviceInfo 增强版，带最近活跃时间
+type DeviceInfo struct {
+	Fingerprint string    `json:"fingerprint"`
+	IP          string    `json:"ip"`
+	Port        int       `json:"port"`
+	Name        string    `json:"name"`
+	DeviceModel string    `json:"deviceModel,omitempty"`
+	DeviceType  string    `json:"deviceType"`
+	Protocol    string    `json:"protocol"`
+	Download    bool      `json:"download"`
+	LastSeen    time.Time `json:"lastSeen"`
+}
+
+// DiscoveryCallbacks 发现事件回调
+type DiscoveryCallbacks struct {
+	OnDeviceFound func(dev DeviceInfo)      // 新设备出现
+	OnDeviceLost  func(fingerprint string) // 设备离线
+	OnDeviceUpdate func(dev DeviceInfo)     // 设备信息更新
+}
+
 // Discovery 负责本地局域网内 LocalSend 设备的发现
 type Discovery struct {
 	mu      sync.RWMutex
@@ -23,9 +46,10 @@ type Discovery struct {
 
 	iface *net.Interface // nil = 系统默认
 
-	conn *net.UDPConn
-	stop chan struct{}
-	wg   sync.WaitGroup
+	conn      *net.UDPConn
+	stop      chan struct{}
+	wg        sync.WaitGroup
+	callbacks DiscoveryCallbacks
 }
 
 func NewDiscovery(localName, localFingerprint string, localPort int, protocol, devType, devModel string, iface *net.Interface) *Discovery {
@@ -40,6 +64,20 @@ func NewDiscovery(localName, localFingerprint string, localPort int, protocol, d
 		iface:            iface,
 		stop:             make(chan struct{}),
 	}
+}
+
+// SetCallbacks 设置事件回调
+func (d *Discovery) SetCallbacks(cb DiscoveryCallbacks) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.callbacks = cb
+}
+
+// UpdateLocalPort 本机实际端口变化时调用（例如端口冲突自动换）
+func (d *Discovery) UpdateLocalPort(port int) {
+	d.mu.Lock()
+	d.localPort = port
+	d.mu.Unlock()
 }
 
 // Start 启动多播监听 + 周期性公告
@@ -57,9 +95,10 @@ func (d *Discovery) Start() error {
 	}
 	d.conn = conn
 
-	d.wg.Add(2)
+	d.wg.Add(3)
 	go d.readLoop()
 	go d.announceLoop()
+	go d.cleanupLoop()
 	return nil
 }
 
@@ -136,6 +175,7 @@ func (d *Discovery) readLoop() {
 			DeviceType:  ann.DeviceType,
 			Protocol:    ann.Protocol,
 			Download:    ann.Download,
+			LastSeen:    time.Now(),
 		})
 	}
 }
@@ -155,17 +195,61 @@ func (d *Discovery) announceLoop() {
 	}
 }
 
+// cleanupLoop 定期清理过期设备
+func (d *Discovery) cleanupLoop() {
+	defer d.wg.Done()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.stop:
+			return
+		case <-ticker.C:
+			d.cleanupExpired()
+		}
+	}
+}
+
+func (d *Discovery) cleanupExpired() {
+	now := time.Now()
+	var toRemove []string
+	d.mu.RLock()
+	for fp, dev := range d.devices {
+		if now.Sub(dev.LastSeen) > DeviceTtl {
+			toRemove = append(toRemove, fp)
+		}
+	}
+	d.mu.RUnlock()
+
+	if len(toRemove) > 0 {
+		d.mu.Lock()
+		for _, fp := range toRemove {
+			delete(d.devices, fp)
+		}
+		cb := d.callbacks
+		d.mu.Unlock()
+		for _, fp := range toRemove {
+			if cb.OnDeviceLost != nil {
+				cb.OnDeviceLost(fp)
+			}
+		}
+	}
+}
+
 func (d *Discovery) sendAnnounce() {
 	if d.conn == nil {
 		return
 	}
+	d.mu.RLock()
+	port := d.localPort
+	d.mu.RUnlock()
 	ann := Announce{
 		Alias:       d.localName,
 		Version:     "2.0",
 		DeviceModel: d.localDevModel,
 		DeviceType:  d.localDevType,
 		Fingerprint: d.localFingerprint,
-		Port:        d.localPort,
+		Port:        port,
 		Protocol:    d.localProtocol,
 		Download:    true,
 	}
@@ -182,15 +266,31 @@ func (d *Discovery) sendAnnounce() {
 
 func (d *Discovery) addOrUpdate(dev *DeviceInfo) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if existing, ok := d.devices[dev.Fingerprint]; ok {
+	cb := d.callbacks
+	existing, ok := d.devices[dev.Fingerprint]
+	if ok {
+		// 检查是否有实际信息变更
+		changed := existing.Name != dev.Name || existing.Port != dev.Port ||
+			existing.Protocol != dev.Protocol || existing.Download != dev.Download ||
+			existing.IP != dev.IP || existing.DeviceModel != dev.DeviceModel ||
+			existing.DeviceType != dev.DeviceType
 		existing.Name = dev.Name
 		existing.Port = dev.Port
 		existing.Protocol = dev.Protocol
 		existing.Download = dev.Download
 		existing.DeviceModel = dev.DeviceModel
 		existing.DeviceType = dev.DeviceType
+		existing.IP = dev.IP
+		existing.LastSeen = dev.LastSeen
+		d.mu.Unlock()
+		if changed && cb.OnDeviceUpdate != nil {
+			cb.OnDeviceUpdate(*existing)
+		}
 	} else {
 		d.devices[dev.Fingerprint] = dev
+		d.mu.Unlock()
+		if cb.OnDeviceFound != nil {
+			cb.OnDeviceFound(*dev)
+		}
 	}
 }

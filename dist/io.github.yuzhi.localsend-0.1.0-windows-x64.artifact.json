@@ -1,6 +1,6 @@
 {
+  "sha256": "bedb3be166996ccaa1fb13fc2f04511f26366b762febe4b182d845ecc04eeebb",
+  "size": 3455092,
   "target": "windows-x64",
-  "url": "io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp",
-  "sha256": "9138e60d2e5431916e5914fa6cfb5b95794d777aead1838bf2aac7824e0b19b4",
-  "size": 6350004
+  "url": "io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp"
 }

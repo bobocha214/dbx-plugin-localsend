@@ -1,0 +1,17 @@
+# 构建产物
+dist/
+backend/dbx-plugin-localsend.exe
+backend/dbx-plugin-test.exe
+
+# 本地运行数据
+config.json
+*.log
+
+# 临时文件
+temp-check.js
+temp-script-*.js
+
+# 编辑器 / 系统
+.vscode/
+.DS_Store
+Thumbs.db

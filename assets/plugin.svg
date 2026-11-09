@@ -1,9 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <!-- two arrows pointing toward an exchange center -->
-  <path d="M7 10 3 14l4 4"/>
-  <path d="M3 14h9"/>
-  <path d="m17 14 4-4-4-4"/>
-  <path d="M21 10h-9"/>
-  <!-- dot in middle -->
-  <circle cx="12" cy="12" r="1.5"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="#0F766E"/>
+
+  <!-- 文件主体 -->
+  <path d="M22 18h10l8 8v20a2 2 0 0 1-2 2H22a2 2 0 0 1-2-2V20a2 2 0 0 1 2-2z" fill="#FFFFFF"/>
+  <path d="M32 18v8h8" stroke="#0F766E" stroke-width="2" fill="none" stroke-linejoin="round"/>
+  <path d="M26 30h12M26 36h8" stroke="#0F766E" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- 局域网 Wi-Fi 信号：右上 45° 扇形 -->
+  <circle cx="44" cy="24" r="1.6" fill="#FFFFFF"/>
+  <path d="M41 21a4 4 0 0 1 6 0" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M38 18a8 8 0 0 1 12 0" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round"/>
 </svg>

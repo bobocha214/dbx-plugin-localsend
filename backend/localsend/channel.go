@@ -74,10 +74,12 @@ func genPIN() string {
 }
 
 // NewChannel 创建频道
-//   pin：可空，空则自动生成 6 位数字
+//   pin：可空；private 频道空则自动生成 6 位，public 频道空则保持空
 func NewChannel(name, visibility string, port int, localIP, saveDir, pin, ownerName, ownerIP, ownerDeviceID string) *Channel {
 	if visibility == "" { visibility = VisibilityPrivate }
-	if pin == "" { pin = genPIN() }
+	if pin == "" && visibility == VisibilityPrivate {
+		pin = genPIN()
+	}
 	c := &Channel{
 		ID:         genChannelID(),
 		Name:       name,
@@ -100,28 +102,26 @@ func NewChannel(name, visibility string, port int, localIP, saveDir, pin, ownerN
 	return c
 }
 
-// DefaultLobby 大厅（公有，自动生成）
+// DefaultLobby 公有频道（自动生成，public 无 PIN）
 func DefaultLobby(localIP, saveDir, ownerName, ownerDeviceID string) *Channel {
-	return NewChannel("大厅", VisibilityPublic, 0, localIP, saveDir, "", ownerName, localIP, ownerDeviceID)
+	return NewChannel("公有频道", VisibilityPublic, 0, localIP, saveDir, "", ownerName, localIP, ownerDeviceID)
 }
 
-// Start 启动频道自己的 LocalSend server
+// Start —— 频道不需要独立 server 了，所有频道共享 main server（一个端口）
+// 这里只记录 saveDir，server 的注册/listen/路由分发全由 main server 统一处理
 func (c *Channel) Start(saveDir string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.saveDir = saveDir
-	c.server = NewServer(saveDir, ServerCallbacks{
-		OnSendRequest: func(sender *SendRequest) *SendResponse {
-			return &SendResponse{Status: "accept"}
-		},
-	}, c.LocalIP)
-	c.server.SetChannelInfo(c.Name, c.PIN, c.ID, c.Visibility)
-	actual, err := c.server.Listen(c.Port)
-	if err != nil {
-		return fmt.Errorf("channel listen on port %d: %w", c.Port, err)
-	}
-	c.Port = actual
+	// 不再创建独立 server —— 由 Plugin 的 main server 统一承载所有频道
 	return nil
+}
+
+// SaveMeta 立即把频道元数据（名称/PIN/可见性/成员）落盘，重启后可恢复
+func (c *Channel) SaveMeta() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.saveMessages()
 }
 
 // Delete 彻底删除频道（停 server + 删磁盘记录）
@@ -191,10 +191,15 @@ func (c *Channel) RemoveMember(memberID string) {
 
 // AppendMessage 加一条消息并落盘
 func (c *Channel) AppendMessage(senderID, sender, content, msgType string) Message {
+	return c.AppendMessageFrom(senderID, "", sender, content, msgType)
+}
+
+// AppendMessageFrom 带设备标识的消息：deviceID 用于识别“是不是本机发的”
+func (c *Channel) AppendMessageFrom(senderID, deviceID, sender, content, msgType string) Message {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	m := Message{
-		ID: genMessageID(), ChannelID: c.ID, SenderID: senderID, Sender: sender,
+		ID: genMessageID(), ChannelID: c.ID, SenderID: senderID, DeviceID: deviceID, Sender: sender,
 		Content: content, Type: msgType, CreatedAt: time.Now(),
 	}
 	c.Messages = append(c.Messages, m)
@@ -217,8 +222,72 @@ func (c *Channel) UpdateInfo(name, pin, visibility string) {
 	}
 }
 
+// fileDir 频道文件落盘目录（saveDir/channel-files/<channelID>）
+func (c *Channel) fileDir() string {
+	if c.saveDir == "" {
+		return ""
+	}
+	return filepath.Join(c.saveDir, "channel-files", c.ID)
+}
+
+// FileDir 导出给 main 打开目录用
+func (c *Channel) FileDir() string { return c.fileDir() }
+
+// sanitizeFID 只保留字母数字和 - _，避免路径穿越
+func sanitizeFID(s string) string {
+	return strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return -1
+	}, s)
+}
+
+// StoreFileData 把上传的文件字节写入频道目录，并登记到 Files
+func (c *Channel) StoreFileData(fid, name, mime string, data []byte) (FileMetadata, error) {
+	if c.saveDir == "" {
+		return FileMetadata{}, fmt.Errorf("未配置保存目录")
+	}
+	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
+	if name == "." || name == "/" || name == "" {
+		name = "unnamed"
+	}
+	fid = sanitizeFID(fid)
+	if fid == "" {
+		fid = genRandom(6)
+	}
+	dir := c.fileDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return FileMetadata{}, err
+	}
+	path := filepath.Join(dir, fid+"_"+name)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return FileMetadata{}, err
+	}
+	fm := FileMetadata{ID: fid, FileName: name, Size: int64(len(data)), MIME: mime, LocalPath: path}
+	c.AddFile(fm)
+	return fm, nil
+}
+
+// FileByID 按 ID 找已登记的文件
+func (c *Channel) FileByID(id string) (FileMetadata, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range c.Files {
+		if c.Files[i].ID == id {
+			return c.Files[i], true
+		}
+	}
+	return FileMetadata{}, false
+}
+
 // AddFile / RemoveFile
-func (c *Channel) AddFile(f FileMetadata)            { c.mu.Lock(); defer c.mu.Unlock(); c.Files = append(c.Files, f) }
+func (c *Channel) AddFile(f FileMetadata) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Files = append(c.Files, f)
+	c.saveMessages()
+}
 func (c *Channel) RemoveFile(id string) {
 	c.mu.Lock(); defer c.mu.Unlock()
 	for i, f := range c.Files {
@@ -248,7 +317,10 @@ func (c *Channel) Snapshot() map[string]any {
 	msgs := make([]any, 0, len(c.Messages))
 	for _, m := range c.Messages { msgs = append(msgs, m) }
 	files := make([]any, 0, len(c.Files))
-	for _, f := range c.Files { files = append(files, f) }
+	for _, f := range c.Files {
+		f.LocalPath = "" // 不把本机磁盘路径暴露给网页/前端
+		files = append(files, f)
+	}
 	return map[string]any{
 		"id": c.ID, "name": c.Name, "pin": c.PIN, "port": c.Port,
 		"localIp": c.LocalIP, "visibility": c.Visibility,
@@ -336,6 +408,13 @@ func RestoreFromDisk(saveDir, localIP, ownerName, ownerDeviceID string) []*Chann
 		// 重新生成 ID/PIN/port 字段（磁盘里可能有），但保持 ID 不变用于关联
 		if log.Channel.ID == "" {
 			continue
+		}
+		// 兼容迁移：旧的 "大厅" 统一改名为 "公有频道"，且 public 频道强制清空 PIN
+		if log.Channel.Visibility == VisibilityPublic {
+			log.Channel.PIN = ""
+			if log.Channel.Name == "大厅" {
+				log.Channel.Name = "公有频道"
+			}
 		}
 		// 确保 owner 成员在
 		hasOwner := false

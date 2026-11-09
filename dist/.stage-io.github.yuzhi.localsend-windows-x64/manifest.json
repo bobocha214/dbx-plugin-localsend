@@ -18,6 +18,8 @@
   ],
   "entrypoints": {
     "backend": {
+      "protocol_versions": [1],
+      "transport": "stdio-jsonl",
       "executable": "bin/windows-x64/dbx-plugin-localsend.exe"
     },
     "ui": {
@@ -45,11 +47,7 @@
         }
       ],
       "workbench": "io.github.yuzhi.localsend.workbench",
-      "capabilities": [
-        "test",
-        "connect",
-        "disconnect"
-      ]
+      "capabilities": ["test", "connect", "disconnect"]
     },
     {
       "type": "workbench",
