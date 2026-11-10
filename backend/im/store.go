@@ -21,6 +21,7 @@ type User struct {
 	Admin    bool   `json:"admin"`
 	Disabled bool   `json:"disabled"`
 	LastSeen int64  `json:"lastSeen"`
+	Online   bool   `json:"online"`
 }
 type account struct {
 	User
@@ -98,6 +99,7 @@ type Service struct {
 	credentialAttempts []int64
 	pendingDeletes     []string
 	downloadTickets    map[string]downloadTicket
+	presence           map[string]int64
 }
 
 func New(dir string) (*Service, error) {

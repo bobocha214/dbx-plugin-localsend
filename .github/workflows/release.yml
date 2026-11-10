@@ -1,0 +1,91 @@
+name: Publish DBX plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GOOS: windows
+      GOARCH: amd64
+      CGO_ENABLED: '0'
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Validate tag, versions and release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          ./scripts/validate-release.ps1 -Tag $env:RELEASE_TAG
+          if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "RELEASE_VERSION=$($env:RELEASE_TAG.Substring(1))" >> $env:GITHUB_ENV
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test backend
+        working-directory: backend
+        run: |
+          go test ./... -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test frontend
+        run: |
+          node --check ui/im.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($test in @('ui/im.test.js','ui/im-settings.test.js','ui/im-theme.test.js','ui/im-transfer.test.js')) {
+            node $test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Build Windows x64 package
+        run: ./scripts/package-im.ps1 -Version $env:RELEASE_VERSION
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $base = "dist/io.github.yuzhi.localsend-$env:RELEASE_VERSION-windows-x64"
+          $assets = @("$base.dbxp", "$base.dbxp.sha256", "$base.artifact.json")
+          foreach ($asset in $assets) {
+            if (!(Test-Path -LiteralPath $asset)) { throw "Missing asset: $asset" }
+          }
+          $notes = "docs/RELEASE-$env:RELEASE_VERSION.md"
+          $title = "邻间 $env:RELEASE_VERSION"
+          $prerelease = if ($env:RELEASE_VERSION.Contains('-')) { 'true' } else { 'false' }
+          gh release view $env:RELEASE_TAG --json tagName *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:RELEASE_TAG --verify-tag --draft --title $title --notes-file $notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          gh release upload $env:RELEASE_TAG @assets --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release edit $env:RELEASE_TAG --title $title --notes-file $notes --prerelease=$prerelease --draft=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

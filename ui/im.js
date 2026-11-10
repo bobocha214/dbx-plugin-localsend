@@ -308,6 +308,12 @@ function startIMClient() {
       const [users,conversations]=await Promise.all([api('/users'),api('/conversations')]);
       if(epoch!==sessionEpoch)return;
       state.users=users.users||[];
+      const contactQuery=($('#contactSearch')?.value||'').toLowerCase();
+      document.querySelectorAll('[data-contact-id]').forEach(row=>{
+        const user=state.users.find(u=>u.id===row.dataset.contactId);
+        row.hidden=!user?.online||!row.dataset.contact.toLowerCase().includes(contactQuery);
+        if(!user?.online){const checkbox=row.querySelector('input[type=checkbox]');if(checkbox)checkbox.checked=false;}
+      });
       const previous=state.conversations;
       state.conversations=conversations.conversations||[];
       for(const c of state.conversations){
@@ -469,8 +475,8 @@ function startIMClient() {
   }
   async function contacts(group=false){
     await refresh();
-    modal(group?'新建群聊':'通讯录',`<form id="peopleForm" class="form">${group?'<label>群聊名称<input name="name" required maxlength="80" placeholder="例如：产品协作组"></label>':''}${!group?'<input class="contact-search" id="contactSearch" type="search" placeholder="搜索昵称或简介" aria-label="搜索通讯录">':''}<div class="member-list contact-list">${state.users.filter(u=>u.id!==state.me.id&&!u.disabled).map(u=>`<div class="person" data-contact="${esc((u.nickname||u.username)+' '+(u.bio||''))}">${avatar(u)}<div class="grow"><strong>${esc(u.nickname||u.username)}</strong><p>${esc(u.bio||'@'+u.username)}</p></div>${group?`<input type="checkbox" name="member" value="${esc(u.id)}" aria-label="选择 ${esc(u.nickname)}">`:`<button type="button" class="text" data-user="${esc(u.id)}">发消息</button>`}</div>`).join('')||'<p class="muted">还没有其他访客，让同一局域网的朋友打开此页面即可加入。</p>'}</div>${group?'<button type="submit" class="primary">创建群聊</button>':''}</form>`);
-    if(!group)$('#contactSearch').oninput=e=>{const q=e.target.value.toLowerCase();$('#peopleForm').querySelectorAll('[data-contact]').forEach(x=>x.hidden=!x.dataset.contact.toLowerCase().includes(q));};
+    modal(group?'新建群聊':'通讯录',`<form id="peopleForm" class="form">${group?'<label>群聊名称<input name="name" required maxlength="80" placeholder="例如：产品协作组"></label>':''}${!group?'<input class="contact-search" id="contactSearch" type="search" placeholder="搜索昵称或简介" aria-label="搜索通讯录">':''}<div class="member-list contact-list">${state.users.filter(u=>u.id!==state.me.id&&!u.disabled&&u.online).map(u=>`<div class="person" data-contact-id="${esc(u.id)}" data-contact="${esc((u.nickname||u.username)+' '+(u.bio||''))}">${avatar(u)}<div class="grow"><strong>${esc(u.nickname||u.username)}</strong><p>${esc(u.bio||'@'+u.username)}</p></div>${group?`<input type="checkbox" name="member" value="${esc(u.id)}" aria-label="选择 ${esc(u.nickname)}">`:`<button type="button" class="text" data-user="${esc(u.id)}">发消息</button>`}</div>`).join('')||'<p class="muted">暂无其他在线访客，让同一局域网的朋友打开此页面即可加入。</p>'}</div>${group?'<button type="submit" class="primary">创建群聊</button>':''}</form>`);
+    if(!group)$('#contactSearch').oninput=e=>{const q=e.target.value.toLowerCase();$('#peopleForm').querySelectorAll('[data-contact]').forEach(x=>{const user=state.users.find(u=>u.id===x.dataset.contactId);x.hidden=!user?.online||!x.dataset.contact.toLowerCase().includes(q)});};
     $('#peopleForm').querySelectorAll('[data-user]').forEach(b=>b.onclick=async()=>{
       try{
         const result=await api('/conversations','POST',{

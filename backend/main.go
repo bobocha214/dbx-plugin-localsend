@@ -30,7 +30,7 @@ import (
 
 const (
 	pluginID      = "io.github.yuzhi.localsend"
-	pluginVersion = "0.1.0"
+	pluginVersion = "0.1.1"
 	defaultPort   = localsend.DefaultPort
 	defaultScheme = "http"
 )

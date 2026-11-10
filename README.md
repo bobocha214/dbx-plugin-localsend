@@ -6,6 +6,8 @@
 
 构建安装包：在项目根目录运行 `./scripts/package-im.ps1`，输出 `dist/io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp`。
 
+自动发布：推送 `v版本号` tag 后，GitHub Actions 自动测试、打包并创建 Release，更新内容读取 `docs/RELEASE-版本号.md`。操作步骤见 [发布指南](docs/RELEASING.md)。
+
 下面内容为旧版频道实现参考，新工作台不再自动启动旧频道 HTTP 服务。
 
 ---

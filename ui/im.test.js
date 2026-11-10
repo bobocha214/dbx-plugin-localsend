@@ -55,6 +55,16 @@ const vm = require('vm');
 }
 (async () => {
   {
+    let rendered='';
+    const context={refresh:async()=>{},state:{me:{id:'me'},users:[{id:'active',nickname:'在线同事',online:true},{id:'closed',nickname:'已关闭页面',online:false}]},
+      modal:(title,html)=>{rendered=html},$:()=>({querySelectorAll:()=>[]}),esc:helpers.escape,avatar:()=>'',submit(){}};
+    vm.createContext(context);
+    vm.runInContext(js.slice(js.indexOf('async function contacts('),js.indexOf('async function profile(')),context);
+    await context.contacts();
+    assert(rendered.includes('在线同事'));assert(!rendered.includes('已关闭页面'),'Offline visitors are excluded from contacts');
+    console.log('Contacts: online visitors appear; closed/offline visitors are hidden without deleting their identity.');
+  }
+  {
     const source=js.slice(js.indexOf('async function guestEntry('),js.indexOf('function logoutLocal('));
     const calls=[],context={bridge:{},state:{hostStatus:{}},api:async(path,method,body)=>{calls.push({path,method,body});return {token:'guest-session'};},saveToken:value=>calls.push(value),enter:async()=>calls.push('entered')};
     vm.createContext(context);vm.runInContext(source,context);await context.guestEntry();

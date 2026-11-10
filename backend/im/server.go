@@ -115,6 +115,10 @@ func (s *Service) route(method, path, token string, body json.RawMessage, local 
 	if !ok {
 		return failure(401, "authentication required")
 	}
+	if s.presence == nil {
+		s.presence = map[string]int64{}
+	}
+	s.presence[a.ID] = now()
 	if strings.HasPrefix(path, "/peers") && s.peerRequest != nil {
 		if !local || !a.Admin {
 			return failure(403, "peer controls require the local administrator")
@@ -196,7 +200,10 @@ func (s *Service) route(method, path, token string, body json.RawMessage, local 
 			if a.Hash == "" && u.Hash != "" {
 				continue
 			}
-			out = append(out, u.User)
+			user := u.User
+			user.LastSeen = s.presence[u.ID]
+			user.Online = user.LastSeen > 0 && now()-user.LastSeen <= presenceTimeout
+			out = append(out, user)
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })
 		return 200, map[string]any{"users": out}

@@ -1,6 +1,10 @@
-param([string]$Version = '0.1.0')
+param([string]$Version = '')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+$sourceManifest = Get-Content -LiteralPath (Join-Path $repo 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+if (!$Version) { $Version = $sourceManifest.version }
+if ($Version -ne $sourceManifest.version) { throw 'Manifest version mismatch' }
+if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$') { throw 'Invalid package version' }
 $output = Join-Path $repo 'dist'
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $stage = Join-Path $output ('im-stage-' + [Guid]::NewGuid().ToString('N'))
@@ -31,4 +35,7 @@ $zip = Join-Path $output "io.github.yuzhi.localsend-$Version-windows-x64.zip"
 $package = Join-Path $output "io.github.yuzhi.localsend-$Version-windows-x64.dbxp"
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Force
 Move-Item -LiteralPath $zip -Destination $package -Force
+$packageHash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
+"$packageHash  $([IO.Path]::GetFileName($package))" | Set-Content -LiteralPath ($package + '.sha256') -Encoding ascii
+[ordered]@{sha256=$packageHash;size=(Get-Item -LiteralPath $package).Length;target='windows-x64';url=[IO.Path]::GetFileName($package)} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output "io.github.yuzhi.localsend-$Version-windows-x64.artifact.json") -Encoding utf8
 Get-FileHash -LiteralPath $package -Algorithm SHA256
