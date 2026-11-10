@@ -35,7 +35,7 @@ func TestSlowCenterDoesNotBlockNodeControls(t *testing.T) {
 	}))
 	defer remote.Close()
 	p := NewPlugin()
-	p.cfgPath = filepath.Join(t.TempDir(), "config.json")
+	p.dataDir = t.TempDir()
 	p.handleIM("im/connect", json.RawMessage(`{"url":"`+remote.URL+`"}`))
 	done := make(chan struct{})
 	go func() { defer close(done); p.handleIM("im/request", json.RawMessage(`{"path":"/status"}`)) }()
@@ -67,7 +67,7 @@ func TestProxyPathValidation(t *testing.T) {
 
 func TestIMPluginLifecycleAndBrowser(t *testing.T) {
 	p := NewPlugin()
-	p.cfgPath = filepath.Join(t.TempDir(), "config.json")
+	p.dataDir = t.TempDir()
 	call := func(method string, body any) any {
 		t.Helper()
 		b, _ := json.Marshal(body)
@@ -109,7 +109,7 @@ func TestIMPluginLifecycleAndBrowser(t *testing.T) {
 	call("im/stop", map[string]any{})
 	call("im/start", map[string]any{"port": port})
 	call("im/stop", map[string]any{})
-	if _, e := os.Stat(filepath.Join(filepath.Dir(p.cfgPath), "im", "state.json")); e != nil {
+	if _, e := os.Stat(filepath.Join(p.dataDir, "im", "state.json")); e != nil {
 		t.Fatal(e)
 	}
 }

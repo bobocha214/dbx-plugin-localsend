@@ -3,7 +3,7 @@
   "manifest_version": 1,
   "id": "io.github.yuzhi.localsend",
   "name": "邻间",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "publisher": "yuzhi",
   "description": "免登录局域网通讯：游客大厅、单聊群聊、图片文件与可信节点直连，支持网页访问。",
   "icon": "assets/plugin.svg",

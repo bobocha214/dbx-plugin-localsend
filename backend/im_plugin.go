@@ -20,7 +20,7 @@ import (
 	dbxpluginsdk "github.com/t8y2/dbx/plugins/sdk/go/dbx-plugin-sdk"
 )
 
-// imRuntime owns the new service separately from the legacy LocalSend server.
+// imRuntime owns the IM service.
 type imRuntime struct {
 	mu             sync.Mutex
 	service        *im.Service
@@ -77,7 +77,7 @@ func (p *Plugin) initIMLocked() error {
 	if p.imState.service != nil {
 		return nil
 	}
-	dir := filepath.Join(filepath.Dir(p.cfgPath), "im")
+	dir := filepath.Join(p.dataDir, "im")
 	s, e := im.New(dir)
 	if e != nil {
 		return e
