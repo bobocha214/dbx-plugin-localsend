@@ -45,4 +45,4 @@ node --check ui/im.js
 node ui/im.test.js
 ```
 
-本机 Windows 候选包可运行 `./scripts/package-im.ps1` 生成，包含全部新 UI 资源并生成校验和；正式分发建议使用匹配版本的 DBX 官方 CLI 校验与构建。清单版本与后端均为 0.2.2。未经真实 DBX 安装及两台物理设备联调，不应将本机构建测试等同于发行验收。
+当前版本为 0.1.2。运行 `./scripts/package-im.ps1 -Target windows-x64` 生成指定平台包；支持 Windows、macOS、Linux 的 x64 / ARM64 六个 target。脚本需要 Go、PowerShell 7 和 Python 3.8+。发布步骤见 [RELEASING.md](RELEASING.md)。本机构建和静态校验不能替代对应系统、架构上的 DBX 安装及两台物理设备联调。

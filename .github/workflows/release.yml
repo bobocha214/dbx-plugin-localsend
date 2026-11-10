@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing version tag to publish (for example v0.1.1)'
+        description: 'Existing version tag to publish (for example v0.1.2)'
         required: true
         type: string
   push:
@@ -12,56 +12,62 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  release:
-    runs-on: windows-latest
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: windows-x64, runner: windows-latest }
+          - { target: windows-arm64, runner: windows-latest }
+          - { target: macos-x64, runner: macos-latest }
+          - { target: macos-arm64, runner: macos-latest }
+          - { target: linux-x64, runner: ubuntu-latest }
+          - { target: linux-arm64, runner: ubuntu-latest }
     defaults:
       run:
         shell: pwsh
-    env:
-      GOOS: windows
-      GOARCH: amd64
-      CGO_ENABLED: '0'
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
-
       - name: Validate tag, versions and release notes
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           ./scripts/validate-release.ps1 -Tag $env:RELEASE_TAG
-          if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "RELEASE_VERSION=$($env:RELEASE_TAG.Substring(1))" >> $env:GITHUB_ENV
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: Test backend
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      # Test the runner's native architecture; packaging cross-compiles separately.
+      - name: Test backend on host OS
         working-directory: backend
         run: |
           go test ./... -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Test frontend
         run: |
           node --check ui/im.js
@@ -70,24 +76,64 @@ jobs:
             node $test
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Build target package
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          ./scripts/package-im.ps1 -Version $env:RELEASE_VERSION -Target $env:PACKAGE_TARGET
+          python scripts/verify-package.py "dist/io.github.yuzhi.localsend-$env:RELEASE_VERSION-$env:PACKAGE_TARGET.dbxp"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Save verified release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            dist/io.github.yuzhi.localsend-${{ env.RELEASE_VERSION }}-${{ matrix.target }}.dbxp
+            dist/io.github.yuzhi.localsend-${{ env.RELEASE_VERSION }}-${{ matrix.target }}.dbxp.sha256
+            dist/io.github.yuzhi.localsend-${{ env.RELEASE_VERSION }}-${{ matrix.target }}.artifact.json
 
-      - name: Build Windows x64 package
-        run: ./scripts/package-im.ps1 -Version $env:RELEASE_VERSION
-
-      - name: Create release and upload assets
+  release:
+    name: Publish all six platforms
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Download verified packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: release-assets
+      - name: Publish release with update notes
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          $base = "dist/io.github.yuzhi.localsend-$env:RELEASE_VERSION-windows-x64"
-          $assets = @("$base.dbxp", "$base.dbxp.sha256", "$base.artifact.json")
-          foreach ($asset in $assets) {
-            if (!(Test-Path -LiteralPath $asset)) { throw "Missing asset: $asset" }
+          ./scripts/validate-release.ps1 -Tag $env:RELEASE_TAG
+          $version = $env:RELEASE_TAG.Substring(1)
+          $assets = @()
+          foreach ($target in @('windows-x64','windows-arm64','macos-x64','macos-arm64','linux-x64','linux-arm64')) {
+            $base = "release-assets/io.github.yuzhi.localsend-$version-$target"
+            foreach ($suffix in @('.dbxp','.dbxp.sha256','.artifact.json')) {
+              $file = "$base$suffix"
+              if (!(Test-Path -LiteralPath $file)) { throw "Missing release file: $file" }
+              $assets += $file
+            }
           }
-          $notes = "docs/RELEASE-$env:RELEASE_VERSION.md"
-          $title = "邻间 $env:RELEASE_VERSION"
-          $prerelease = if ($env:RELEASE_VERSION.Contains('-')) { 'true' } else { 'false' }
+          $notes = "docs/RELEASE-$version.md"
+          $title = "邻间 $version"
+          $prerelease = if ($version.Contains('-')) { 'true' } else { 'false' }
           gh release view $env:RELEASE_TAG --json tagName *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $env:RELEASE_TAG --verify-tag --draft --title $title --notes-file $notes

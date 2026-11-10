@@ -30,7 +30,7 @@ import (
 
 const (
 	pluginID      = "io.github.yuzhi.localsend"
-	pluginVersion = "0.1.1"
+	pluginVersion = "0.1.2"
 	defaultPort   = localsend.DefaultPort
 	defaultScheme = "http"
 )
@@ -872,20 +872,14 @@ func (p *Plugin) localsendInfo() any {
 	}
 }
 
-// --- 目录选择（Windows 弹 PowerShell FolderBrowserDialog）---
+// --- 跨平台目录选择 ---
 
 func (p *Plugin) folderPick() (any, *dbxpluginsdk.PluginError) {
-	if runtime.GOOS != "windows" {
-		return nil, dbxpluginsdk.NewError(-32602, "当前只支持 Windows 选择目录")
-	}
-	// PowerShell 弹 FolderBrowserDialog，输出选中路径
-	script := `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = '选择接收文件夹'; if ($d.ShowDialog() -eq 'OK') { Write-Output $d.SelectedPath }`
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
-	out, err := cmd.Output()
+	dir, err := pickDirectory()
 	if err != nil {
 		return nil, dbxpluginsdk.NewError(-32602, "选择失败: "+err.Error())
 	}
-	dir := strings.TrimSpace(string(out))
+
 	if dir == "" {
 		return map[string]any{"cancelled": true}, nil
 	}
