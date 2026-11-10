@@ -14,6 +14,7 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 $stage = Join-Path $output ('im-stage-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $stage 'bin') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repo 'manifest.json') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repo 'assets') -Destination $stage -Recurse
 New-Item -ItemType Directory -Path (Join-Path $stage 'ui') | Out-Null
 foreach ($name in @('index.html','im.css','im.js','im-archive.js')) {

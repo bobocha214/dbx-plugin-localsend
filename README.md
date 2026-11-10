@@ -1,8 +1,8 @@
-# 邻间 0.1.2
+# 邻间 0.1.3
 
 当前版本默认免登录：插件自动进入局域网大厅，网页游客只需昵称即可聊天、传图片和文件；保留插件联系人、私聊与可选中心服务。
 
-当前版本为 **0.1.2**。使用、数据与验证说明见 [docs/IM.md](docs/IM.md)，发布说明见 [docs/RELEASE-0.1.2.md](docs/RELEASE-0.1.2.md)。
+当前版本为 **0.1.3**。使用、数据与验证说明见 [docs/IM.md](docs/IM.md)，发布说明见 [docs/RELEASE-0.1.3.md](docs/RELEASE-0.1.3.md)。
 
 支持 Windows / macOS / Linux 的 x64（AMD64）和 ARM64。构建安装包需 Go、PowerShell 7 和 Python 3.8+；运行 `./scripts/package-im.ps1 -Target macos-arm64` 可指定目标，省略时生成 Windows x64 包，输出位于 dist。
 
@@ -16,7 +16,7 @@
 
 > 基于 DBX 插件协议的局域网点对点文件传输与频道聊天工具，零中间服务器。
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27%2B-00ADD8.svg)](https://go.dev)
 [![Platform](https://img.shields.io/badge/platform-windows_x64-lightgrey.svg)](#构建与打包)
 
@@ -40,7 +40,7 @@
 ### 从 `.dbxp` 安装（推荐）
 
 1. 打开 DBX → 设置 → 插件 → 安装本地插件
-2. 选择 [最新发布包](#构建与打包) 中的 `io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp`
+2. 选择 [最新发布包](#构建与打包) 中的 `io.github.yuzhi.localsend-0.1.3-windows-x64.dbxp`
 3. 打开「局域网快传」工作台 → 右上角「启动」
 4. 创建/加入频道 → 开始聊天或发送文件
 
@@ -225,19 +225,20 @@ foreach ($f in $files) {
     Set-Content -Path "$stage\checksums.json" -Encoding UTF8
 
 # 4. 打 zip（DBX 要求的 .dbxp 格式其实就是 zip）
-Remove-Item 'dist\io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp' -Force -ErrorAction SilentlyContinue
-Compress-Archive -Path "$stage\*" -DestinationPath 'dist\io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp' -Force
+Remove-Item 'dist\io.github.yuzhi.localsend-0.1.3-windows-x64.dbxp' -Force -ErrorAction SilentlyContinue
+Compress-Archive -Path "$stage\*" -DestinationPath 'dist\io.github.yuzhi.localsend-0.1.3-windows-x64.dbxp' -Force
 
 # 5. 算 SHA256（发布时带上）
-Get-FileHash 'dist\io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp' -Algorithm SHA256
+Get-FileHash 'dist\io.github.yuzhi.localsend-0.1.3-windows-x64.dbxp' -Algorithm SHA256
 ```
 
 ### `.dbxp` 内部结构
 
 ```
-io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp (zip)
+io.github.yuzhi.localsend-0.1.3-windows-x64.dbxp (zip)
 ├── manifest.json
 ├── checksums.json        # {"algorithm":"sha256","files":{"<path>":"<hash>"}}
+├── LICENSE               # Apache License 2.0
 ├── assets/
 │   └── plugin.svg
 ├── bin/
@@ -305,4 +306,4 @@ io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp (zip)
 
 ## 📝 License
 
-MIT
+Apache License 2.0，见 [LICENSE](LICENSE)。
