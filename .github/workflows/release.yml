@@ -1,6 +1,12 @@
 name: Publish DBX plugin
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to publish (for example v0.1.1)'
+        required: true
+        type: string
   push:
     tags:
       - 'v*'
@@ -9,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -26,10 +32,12 @@ jobs:
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Validate tag, versions and release notes
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           ./scripts/validate-release.ps1 -Tag $env:RELEASE_TAG
           if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -70,7 +78,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           $base = "dist/io.github.yuzhi.localsend-$env:RELEASE_VERSION-windows-x64"
           $assets = @("$base.dbxp", "$base.dbxp.sha256", "$base.artifact.json")
