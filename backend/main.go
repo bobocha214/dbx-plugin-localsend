@@ -84,6 +84,7 @@ func autoNickname() string {
 
 // Plugin 共享状态
 type Plugin struct {
+	imState          imRuntime
 	mu               sync.RWMutex
 	cfg              Config
 	cfgPath          string
@@ -170,11 +171,8 @@ func main() {
 		plugin.channels[lobby.ID] = lobby
 	}
 
-	if plugin.cfg.AutoStart {
-		if err := plugin.doStart(); err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] auto start: %v\n", pluginID, err)
-		}
-	}
+	// Legacy service is opt-in only; saved v0.1 settings must not expose its
+	// unauthenticated HTTP endpoints when the new IM workbench opens.
 
 	metadata := dbxpluginsdk.Metadata{ID: pluginID, Version: pluginVersion, Capabilities: []string{"connections", "localsend"}}
 	server := dbxpluginsdk.NewServer(metadata, plugin)
@@ -242,6 +240,9 @@ func (p *Plugin) saveConfig() error {
 func (p *Plugin) Handle(
 	_ dbxpluginsdk.RequestContext, method string, params json.RawMessage, em *dbxpluginsdk.Emitter,
 ) (any, *dbxpluginsdk.PluginError) {
+	if strings.HasPrefix(method, "im/") {
+		return p.handleIM(method, params)
+	}
 	// 保存最新 emitter（后台 goroutine 推事件用）
 	if em != nil {
 		p.mu.Lock()
@@ -250,6 +251,16 @@ func (p *Plugin) Handle(
 	}
 
 	switch method {
+	case "connection/test":
+		return map[string]any{"success": true, "message": "局域网 IM 本地节点可用"}, nil
+	case "connection/connect":
+		if _, err := p.handleIM("im/status", json.RawMessage(`{}`)); err != nil {
+			return nil, err
+		}
+		return map[string]any{"success": true}, nil
+	case "connection/disconnect":
+		// Workbench sessions share the node; disconnecting one must not stop other users.
+		return map[string]any{"success": true}, nil
 	case "config/get":
 		return p.configGet(), nil
 	case "config/set":

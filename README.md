@@ -1,3 +1,15 @@
+# 邻间 0.1.0
+
+当前版本默认免登录：插件自动进入局域网大厅，网页游客只需昵称即可聊天、传图片和文件；保留插件联系人、私聊与可选中心服务。
+
+当前版本重新定为 **0.1.0**。使用、数据与验证说明见 [docs/IM.md](docs/IM.md)，发布说明见 [docs/RELEASE-0.1.0.md](docs/RELEASE-0.1.0.md)。
+
+构建安装包：在项目根目录运行 `./scripts/package-im.ps1`，输出 `dist/io.github.yuzhi.localsend-0.1.0-windows-x64.dbxp`。
+
+下面内容为旧版频道实现参考，新工作台不再自动启动旧频道 HTTP 服务。
+
+---
+
 # 局域网快传 (LocalSend for DBX)
 
 > 基于 DBX 插件协议的局域网点对点文件传输与频道聊天工具，零中间服务器。
