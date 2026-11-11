@@ -22,8 +22,6 @@ import (
 const (
 	pluginID      = "io.github.yuzhi.localsend"
 	pluginVersion = "0.2.1"
-	defaultPort   = localsend.DefaultPort
-	defaultScheme = "http"
 )
 
 // Plugin 共享状态

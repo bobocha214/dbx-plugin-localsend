@@ -4,6 +4,9 @@ param(
     [string]$Target = 'windows-x64'
 )
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 writes a UTF-8 BOM with "Set-Content -Encoding utf8",
+# which breaks strict JSON readers in the DBX host. Always write BOM-free JSON.
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $repo = Split-Path -Parent $PSScriptRoot
 $sourceManifest = Get-Content -LiteralPath (Join-Path $repo 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
 if (!$Version) { $Version = $sourceManifest.version }
@@ -21,14 +24,14 @@ foreach ($name in @('index.html','im.css','im.js','im-archive.js')) {
     Copy-Item -LiteralPath (Join-Path $repo "ui/$name") -Destination (Join-Path $stage 'ui')
 }
 Copy-Item -LiteralPath (Join-Path $repo 'ui/vendor') -Destination (Join-Path $stage 'ui') -Recurse
-$manifest = Get-Content (Join-Path $stage 'manifest.json') -Raw | ConvertFrom-Json
+$manifest = Get-Content -LiteralPath (Join-Path $stage 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
 if ($manifest.version -ne $Version) { throw 'Manifest version mismatch' }
 $platform, $architecture = $Target.Split('-')
 $goOS = $platform
 $goArchitecture = if ($architecture -eq 'x64') { 'amd64' } else { 'arm64' }
 $binary = if ($platform -eq 'windows') { 'bin/dbx-plugin-localsend.exe' } else { 'bin/dbx-plugin-localsend' }
 $manifest.entrypoints.backend.executable = $binary
-$manifest | ConvertTo-Json -Depth 30 | Set-Content -Encoding utf8 (Join-Path $stage 'manifest.json')
+[IO.File]::WriteAllText((Join-Path $stage 'manifest.json'), ($manifest | ConvertTo-Json -Depth 30), $utf8NoBom)
 Push-Location (Join-Path $repo 'backend')
 $previousGoOS, $previousGoArch, $previousCGO = $env:GOOS, $env:GOARCH, $env:CGO_ENABLED
 try {
@@ -46,7 +49,7 @@ Get-ChildItem -LiteralPath $stage -File -Recurse | ForEach-Object {
     $relative = $_.FullName.Substring($stage.Length + 1).Replace([IO.Path]::DirectorySeparatorChar, [char]'/')
     $hashes[$relative] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 }
-@{ algorithm='sha256'; files=$hashes } | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $stage 'checksums.json')
+[IO.File]::WriteAllText((Join-Path $stage 'checksums.json'), (@{ algorithm='sha256'; files=$hashes } | ConvertTo-Json -Depth 10), $utf8NoBom)
 $package = Join-Path $output "io.github.yuzhi.localsend-$Version-$Target.dbxp"
 # Python writes the Unix creator marker as well as mode bits, so DBX's Go ZIP
 # reader can restore executable permissions when the package was built on Windows.
@@ -54,5 +57,5 @@ $package = Join-Path $output "io.github.yuzhi.localsend-$Version-$Target.dbxp"
 if ($LASTEXITCODE -ne 0) { throw 'Package archive creation failed' }
 $packageHash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
 "$packageHash  $([IO.Path]::GetFileName($package))" | Set-Content -LiteralPath ($package + '.sha256') -Encoding ascii
-[ordered]@{sha256=$packageHash;size=(Get-Item -LiteralPath $package).Length;target=$Target;url=[IO.Path]::GetFileName($package)} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output "io.github.yuzhi.localsend-$Version-$Target.artifact.json") -Encoding utf8
+[IO.File]::WriteAllText((Join-Path $output "io.github.yuzhi.localsend-$Version-$Target.artifact.json"), ([ordered]@{sha256=$packageHash;size=(Get-Item -LiteralPath $package).Length;target=$Target;url=[IO.Path]::GetFileName($package)} | ConvertTo-Json), $utf8NoBom)
 Get-FileHash -LiteralPath $package -Algorithm SHA256

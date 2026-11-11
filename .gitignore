@@ -2,6 +2,8 @@
 dist/
 backend/dbx-plugin-localsend.exe
 backend/dbx-plugin-test.exe
+.workbuddy
+docs
 
 # 本地运行数据
 config.json

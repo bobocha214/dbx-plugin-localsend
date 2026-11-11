@@ -12,7 +12,10 @@ if ($manifest.version -ne $version) { throw "Tag $Tag does not match manifest ve
 $backend = Get-Content -LiteralPath (Join-Path $RepoRoot 'backend/main.go') -Raw -Encoding utf8
 if ($backend -notmatch ('pluginVersion\s*=\s*"' + [regex]::Escape($version) + '"')) { throw 'Backend version does not match tag.' }
 $html = Get-Content -LiteralPath (Join-Path $RepoRoot 'ui/index.html') -Raw -Encoding utf8
-if (!$html.Contains("邻间 $version</span>")) { throw 'UI version does not match tag.' }
+# Build the Chinese footer label from code points so the script stays ASCII-only:
+# Windows PowerShell 5.1 decodes BOM-less UTF-8 scripts with the ANSI code page.
+$footerLabel = [string][char]0x90BB + [string][char]0x95F4
+if (!$html.Contains("$footerLabel $version</span>")) { throw 'UI version does not match tag.' }
 $notes = Join-Path $RepoRoot "docs/RELEASE-$version.md"
 if (!(Test-Path -LiteralPath $notes -PathType Leaf)) { throw "Missing release notes: docs/RELEASE-$version.md" }
 $body = Get-Content -LiteralPath $notes -Raw -Encoding utf8
