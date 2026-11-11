@@ -79,7 +79,7 @@ const vm = require('vm');
     assert(js.includes('公共大厅：同一服务的游客均可查看消息与文件'),'Public lobby privacy disclosure');
     assert(html.indexOf('vendor/qrcode.min.js')<html.indexOf('src="im.js"'),'QR script loads before IM');
     assert.equal(calls[0].path,'/guest');assert.equal(calls[0].method,'POST');assert.deepEqual(Object.keys(calls[0].body),[]);assert.equal(calls[2],'entered');
-    assert(!/type="password"|\/login|\/register|\/sessions|\/invites/.test(js),'Guest UI must not contain account flows');
+    assert(!/type="password"|api\(['"]\/(?:login|register|sessions|invites)(?:['"/])/.test(js),'Guest UI must not contain account flows');
     assert(js.includes("c.id==='lan-lobby'"),'Guest startup must select public lobby');
     assert(!js.includes('128 MB'),'Downloads must not impose arbitrary memory-size rejection');
   }

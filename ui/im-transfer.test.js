@@ -7,6 +7,23 @@ const js=fs.readFileSync(__dirname+'/im.js','utf8');
 const digest=b=>crypto.createHash('sha256').update(b).digest('hex');
 function nodes(){const map=new Map();return s=>{if(!map.has(s))map.set(s,{value:'',hidden:false,disabled:false,open:true,close(){this.open=false}});return map.get(s)}}
 (async()=>{
+  for(const native of [false,true]){
+    for(const change of ['refresh','conversation','peer','session']){
+      const $=nodes(),sent=[],released=[],notices=[];
+      const test={$,state:{current:{id:'room'},peer:false},sessionEpoch:1,toast:m=>notices.push(m),upload:async file=>sent.push(file),withTimeout:p=>p,Error,Promise,setTimeout};
+      const mutate=()=>{if(change==='session')test.sessionEpoch++;else if(change==='peer')test.state.peer=true;else test.state.current={id:change==='refresh'?'room':'other'};};
+      if(native){test.bridge={invoke:async()=>({id:'archive'})};test.rpc=async name=>{if(name==='im/archive-status'){mutate();return{ready:true,name:'folder.zip',size:3}}if(name==='im/archive-release')released.push('archive');return{}};}
+      else{test.bridge=null;test.IMArchive={folder:async()=>{mutate();return{name:'folder.zip',size:3}}};}
+      vm.createContext(test);
+      const code=native?js.slice(js.indexOf("$('#attachFolder').onclick="),js.indexOf("$('#emoji').onclick=")):js.slice(js.indexOf("$('#folderInput').onchange="),js.indexOf("$('#cancelUpload').onclick="));
+      vm.runInContext(code,test);
+      if(native)await $('#attachFolder').onclick();else await $('#folderInput').onchange({target:{files:[{}],value:'folder'}});
+      assert.equal(sent.length,change==='refresh'?1:0,`${native?'Native':'Browser'} folder ${change}: refresh must upload; actual context change must cancel`);
+      if(native&&change!=='refresh')assert.deepEqual(released,['archive']);
+      assert.equal($('#attachFolder').disabled,false,'Folder button restored');
+    }
+  }
+  console.log('Folder upload: polling object replacement is accepted; conversation, peer and session changes cancel safely in native and browser flows.');
   const bytes=crypto.randomBytes(600001),file=new Blob([bytes]);file.name='resume.bin';
   const $=nodes();let remote=Buffer.alloc(0),lost=false,finished=false,creates=0;
   const context={$,esc:helpers.escape,state:{current:{id:'room'},peer:false,upload:null},sessionEpoch:0,newId:()=> 'task',SHA256:helpers.SHA256,Map,Uint8Array,Math,Error,encodeURIComponent,bridge:null,modal:()=>{},toast:()=>{},IMHelpers:helpers,base64:b=>Buffer.from(b).toString('base64'),send:async()=>true,

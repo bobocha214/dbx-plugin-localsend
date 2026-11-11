@@ -72,7 +72,7 @@ jobs:
         run: |
           node --check ui/im.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($test in @('ui/im.test.js','ui/im-settings.test.js','ui/im-theme.test.js','ui/im-transfer.test.js')) {
+          foreach ($test in @('ui/im.test.js','ui/im-settings.test.js','ui/im-theme.test.js','ui/im-transfer.test.js','ui/im-channels.test.js')) {
             node $test
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

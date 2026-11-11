@@ -15,12 +15,21 @@ import (
 	"time"
 )
 
-func (s *Service) filePath(id string) string { d:=s.fileDir; if d=="" { d=filepath.Join(s.dir,"files") }; return filepath.Join(d, id) }
+func (s *Service) filePath(id string) string {
+	d := s.fileDir
+	if d == "" {
+		d = filepath.Join(s.dir, "files")
+	}
+	return filepath.Join(d, id)
+}
 func (s *Service) fileRoute(method, path string, a account, b input) (int, any) {
 	if path == "/attachments" && method == "POST" {
 		c, ok := s.state.Conversations[b.ConversationID]
 		if !ok || !member(c, a.ID) {
 			return failure(404, "conversation not found")
+		}
+		if !canContribute(c, a.ID) {
+			return failure(403, "群聊只读或已归档")
 		}
 		if b.Size < 0 || len(b.Name) < 1 || len(b.Name) > 255 || strings.ContainsAny(b.Name, "/\\\x00\r\n") || len(b.Mime) > 200 {
 			return failure(400, "invalid file")
@@ -85,6 +94,9 @@ func (s *Service) fileRoute(method, path string, a account, b input) (int, any) 
 	}
 	if v.OwnerID != a.ID {
 		return failure(403, "owner required")
+	}
+	if !canContribute(c, a.ID) {
+		return failure(403, "群聊只读或已归档")
 	}
 	if len(parts) == 2 && parts[1] == "chunks" && method == "PUT" {
 		if v.Finished {

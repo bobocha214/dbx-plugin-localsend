@@ -279,7 +279,7 @@ function startIMClient() {
     $('#nodes').hidden=!bridge||!!state.hostStatus?.center||!state.me.admin;
     $('#profile').innerHTML=avatar(state.me);
     await refresh();
-    const lobby=state.conversations.find(c=>c.id==='lan-lobby');if(lobby)await select(lobby);
+    const lobby=state.conversations.find(c=>c.id==='lan-lobby');if(lobby)await select(lobby);await acceptChannelInvitation();
     clearInterval(timer);
     timer=setInterval(()=>refresh().catch(e=>{
       $('#connection').textContent='连接中断';
@@ -292,9 +292,12 @@ function startIMClient() {
   function renderConversations(){
     const q=$('#conversationSearch').value.toLowerCase();
     $('#conversationCount').textContent=state.conversations.length;
-    $('#conversations').innerHTML=state.conversations.filter(c=>IMHelpers.title(c,state.users,state.me.id).toLowerCase().includes(q)).map(c=>{
+    $('#conversations').innerHTML=state.conversations.filter(c=>IMHelpers.title(c,state.users,state.me.id).toLowerCase().includes(q)).sort((a,b)=>(a.id==='lan-lobby'?0:1)-(b.id==='lan-lobby'?0:1)).map((c,index,items)=>{
       const name=IMHelpers.title(c,state.users,state.me.id);
-      return `<button class="conversation ${!state.peer&&state.current?.id===c.id?'selected':''}" data-conversation="${esc(c.id)}">${avatar({nickname:name})}<div class="details"><strong>${esc(name)}</strong><div class="preview">${esc(state.previews.get(c.id)|| (c.kind==='group'?`${c.members.length} 位成员`:'点击开始对话'))}</div></div>${state.unread.get(c.id)?`<span class="badge">${state.unread.get(c.id)}</span>`:''}${c.id==='lan-lobby'?'':`<span class="remove-conversation" data-remove="${esc(c.id)}" title="移除会话" aria-label="移除会话"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h8l1-13M10 11v6m4-6v6"/></svg></span>`}</button>`;
+      const group=c.id==='lan-lobby'?'公共空间':'私聊与群聊';
+      const previous=items[index-1];
+      const heading=!previous||(previous.id==='lan-lobby'?'公共空间':'私聊与群聊')!==group?`<div class="section-label">${group}</div>`:'';
+      return `${heading}<button class="conversation ${!state.peer&&state.current?.id===c.id?'selected':''}" data-conversation="${esc(c.id)}">${avatar({nickname:name})}<div class="details"><strong>${esc(name)}</strong><div class="preview">${esc(state.previews.get(c.id)|| ((c.kind==='group'||c.kind==='channel')?`${c.members.length} 位成员`:'点击开始对话'))}</div></div>${state.unread.get(c.id)?`<span class="badge">${state.unread.get(c.id)}</span>`:''}${c.id==='lan-lobby'?'':`<span class="remove-conversation" data-remove="${esc(c.id)}" title="移除会话" aria-label="移除会话"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h8l1-13M10 11v6m4-6v6"/></svg></span>`}</button>`;
     }
     ).join('')||'<div class="list-empty">还没有会话<br>从通讯录开始交流吧</div>';
     $('#conversations').querySelectorAll('[data-conversation]').forEach(b=>b.onclick=()=>select(state.conversations.find(c=>c.id===b.dataset.conversation)));
@@ -303,6 +306,7 @@ function startIMClient() {
   async function refresh(){
     const epoch=sessionEpoch;
     if(pollBusy||!state.me)return;
+    const selectedAtRequest=state.current;
     pollBusy=true;
     try{
       const [users,conversations]=await Promise.all([api('/users'),api('/conversations')]);
@@ -316,10 +320,25 @@ function startIMClient() {
       });
       const previous=state.conversations;
       state.conversations=conversations.conversations||[];
+      // A response requested before selecting a newly created/joined group
+      // cannot revoke that selection. The next poll uses a fresh snapshot.
+      const selectionChanged=state.current!==selectedAtRequest;
+      if(selectionChanged&&state.current&&!state.peer){
+        state.conversations=state.conversations.filter(c=>c.id!==state.current.id);
+        state.conversations.unshift(state.current);
+      }
       for(const c of state.conversations){
         if(typeof c.unread==='number'){state.unread.set(c.id,c.unread);continue;}
         const old=previous.find(x=>x.id===c.id);
         if(old&&old.updatedAt!==c.updatedAt&&state.current?.id!==c.id)state.unread.set(c.id,(state.unread.get(c.id)||0)+1);
+      }
+      if(state.current&&!state.peer&&!selectionChanged){
+        const updated=state.conversations.find(c=>c.id===state.current.id);
+        if(!updated){await clearRevokedConversation();toast('此会话已移除、解散或访问权限已撤销');return;}
+        const changed=JSON.stringify(state.current)!==JSON.stringify(updated);
+        state.current=updated;
+        if(changed){$('#chatTitle').textContent=title(updated);$('#chatAvatar').textContent=title(updated).slice(0,1);}
+        updateChannelControls();if(changed&&state.channelTab==='members')renderChannelMembers();
       }
       renderConversations();
       if(state.current)await loadMessages();
@@ -331,8 +350,11 @@ function startIMClient() {
   }
   async function select(c,peer=false){
     if(state.current)state.drafts.set((state.peer?'peer:':'')+state.current.id,$('#draft').value);
+    if(!c)return;
     state.current=c;
+    if(!peer)state.revokedConversations?.delete(c.id);
     state.peer=peer;
+    state.channelTab='chat';
     state.query='';
     state.historyCount=200;state.olderMessages=[];
     $('#messageSearch').value='';
@@ -347,16 +369,18 @@ function startIMClient() {
     $('#empty').hidden=true;
     $('#chat').hidden=false;
     $('#attach').disabled=false;
+    updateChannelControls();
     document.body.classList.add('chat-open');
     state.unread.delete(c.id);
     renderConversations();
     await loadMessages(true);
+    if(state.current?.id!==c.id||state.peer!==peer)return;
     if(!peer)api(`/conversations/${encodeURIComponent(c.id)}/read`,'POST',{
     }
     ).catch(()=>{
     }
     );
-    $('#draft').focus();
+    if(state.channelTab==='chat')$('#draft').focus();
   }
   function messagesPath(c=state.current,peer=state.peer){
     return peer?`/peers/${encodeURIComponent(c.id)}/messages`:`/conversations/${encodeURIComponent(c.id)}/messages`;
@@ -432,14 +456,17 @@ function startIMClient() {
     const items=[...records.values()].filter(r=>r.scope===scope).sort((a,b)=>b.at-a.at),labels={saved:'已保存',paused:'已暂停',failed:'下载失败',browser:'已交给浏览器 · 完成状态未知'};
     modal('下载记录',`<div class="form"><p class="muted">当前会话的实际下载记录。仅保存接口确认完成后标记为“已保存”。</p><div class="file-list">${items.map(r=>`<div class="file-row">${IMHelpers.fileBadge(r.name)}<div class="grow"><strong>${esc(r.name)}</strong><small>${esc(labels[r.status]||r.status)} · ${IMHelpers.size(r.received)} / ${IMHelpers.size(r.size)}</small><small>${esc(new Date(r.at).toLocaleString('zh-CN'))}${r.error?' · '+esc(r.error):''}</small></div></div>`).join('')||'<p class="list-empty">本会话暂无下载记录</p>'}</div></div>`);
   }
-  async function filesPanel(){
+  async function filesPanel(inline=false){
+    if(!state.peer){await conversationFileBrowser(false);return;}
     const epoch=sessionEpoch,c=state.current,peer=state.peer,prefix=attachmentPrefix(),scope=downloadScope();let before='',more=true;const messages=[];
     while(more){const result=await api(messagesPath(c,peer)+(peer?'':'?limit=500'+(before?'&beforeId='+encodeURIComponent(before):'')));const page=result.messages||[];messages.push(...page);more=!peer&&!!result.more&&page.length>0&&page[0].id!==before;before=page[0]?.id;}
     const files=[];for(const id of new Set(messages.map(m=>m.attachmentId).filter(Boolean))){try{const result=await api(prefix+'/'+encodeURIComponent(id));files.push(result.attachment||result)}catch(_){files.push({id,name:'附件暂不可用',unavailable:true})}}
     if(epoch!==sessionEpoch||state.current?.id!==c.id||state.peer!==peer)return;
-    modal('当前会话文件',`<div class="file-list">${files.map(f=>`<div class="file-row">${IMHelpers.fileBadge(f.name)}<div class="grow"><strong>${esc(f.name)}</strong><small>${f.unavailable?'':IMHelpers.size(f.size)}</small></div><button type="button" class="text" data-download-file="${esc(f.id)}" ${f.unavailable?'disabled':''}>下载</button></div>`).join('')||'<p class="list-empty">当前会话还没有文件</p>'}</div><button type="button" class="text" id="downloadHistory">查看下载记录</button>`);
-    $('#modalContent').querySelectorAll('[data-download-file]').forEach(b=>b.onclick=()=>download(b.dataset.downloadFile,prefix,null,scope).catch(e=>toast(e.message)));
-    $('#downloadHistory').onclick=()=>downloadHistoryPanel(scope).catch(e=>toast(e.message));
+    const fileHTML=`${inline?'<div class="channel-page-heading"><h3>私聊文件</h3><p class="muted">与此可信节点往来的文件，仅对话双方可查看。</p></div>':''}<div class="file-list">${files.map(f=>`<div class="file-row">${IMHelpers.fileBadge(f.name)}<div class="grow"><strong>${esc(f.name)}</strong><small>${f.unavailable?'':IMHelpers.size(f.size)}</small></div><button type="button" class="text" data-download-file="${esc(f.id)}" ${f.unavailable?'disabled':''}>下载</button></div>`).join('')||'<p class="list-empty">当前会话还没有文件</p>'}</div><button type="button" class="text" id="downloadHistory">查看下载记录</button>`;
+    if(inline){if(state.channelTab!=='files')return;$('#channelSurface').innerHTML=fileHTML;}else modal('当前会话文件',fileHTML);
+    const fileRoot=inline?$('#channelSurface'):$('#modalContent');
+    fileRoot.querySelectorAll('[data-download-file]').forEach(b=>b.onclick=()=>download(b.dataset.downloadFile,prefix,null,scope).catch(e=>toast(e.message)));
+    fileRoot.querySelector('#downloadHistory').onclick=()=>downloadHistoryPanel(scope).catch(e=>toast(e.message));
   }
   async function deliver(message){
     const epoch=sessionEpoch;
@@ -474,9 +501,10 @@ function startIMClient() {
     return deliver(message);
   }
   async function contacts(group=false){
+    if(group){await channelEditor();return;}
     await refresh();
-    modal(group?'新建群聊':'通讯录',`<form id="peopleForm" class="form">${group?'<label>群聊名称<input name="name" required maxlength="80" placeholder="例如：产品协作组"></label>':''}${!group?'<input class="contact-search" id="contactSearch" type="search" placeholder="搜索昵称或简介" aria-label="搜索通讯录">':''}<div class="member-list contact-list">${state.users.filter(u=>u.id!==state.me.id&&!u.disabled&&u.online).map(u=>`<div class="person" data-contact-id="${esc(u.id)}" data-contact="${esc((u.nickname||u.username)+' '+(u.bio||''))}">${avatar(u)}<div class="grow"><strong>${esc(u.nickname||u.username)}</strong><p>${esc(u.bio||'@'+u.username)}</p></div>${group?`<input type="checkbox" name="member" value="${esc(u.id)}" aria-label="选择 ${esc(u.nickname)}">`:`<button type="button" class="text" data-user="${esc(u.id)}">发消息</button>`}</div>`).join('')||'<p class="muted">暂无其他在线访客，让同一局域网的朋友打开此页面即可加入。</p>'}</div>${group?'<button type="submit" class="primary">创建群聊</button>':''}</form>`);
-    if(!group)$('#contactSearch').oninput=e=>{const q=e.target.value.toLowerCase();$('#peopleForm').querySelectorAll('[data-contact]').forEach(x=>{const user=state.users.find(u=>u.id===x.dataset.contactId);x.hidden=!user?.online||!x.dataset.contact.toLowerCase().includes(q)});};
+    modal('通讯录',`<form id="peopleForm" class="form"><input class="contact-search" id="contactSearch" type="search" placeholder="搜索昵称或简介" aria-label="搜索通讯录"><div class="member-list contact-list">${state.users.filter(u=>u.id!==state.me.id&&!u.disabled&&u.online).map(u=>`<div class="person" data-contact-id="${esc(u.id)}" data-contact="${esc((u.nickname||u.username)+' '+(u.bio||''))}">${avatar(u)}<div class="grow"><strong>${esc(u.nickname||u.username)}</strong><p>${esc(u.bio||'@'+u.username)}</p></div><button type="button" class="text" data-user="${esc(u.id)}">发消息</button></div>`).join('')||'<p class="muted">暂无其他在线访客，让同一局域网的朋友打开此页面即可加入。</p>'}</div></form>`);
+    $('#contactSearch').oninput=e=>{const q=e.target.value.toLowerCase();$('#peopleForm').querySelectorAll('[data-contact]').forEach(x=>{const user=state.users.find(u=>u.id===x.dataset.contactId);x.hidden=!user?.online||!x.dataset.contact.toLowerCase().includes(q)});};
     $('#peopleForm').querySelectorAll('[data-user]').forEach(b=>b.onclick=async()=>{
       try{
         const result=await api('/conversations','POST',{
@@ -492,19 +520,139 @@ function startIMClient() {
       }
     }
     );
-    if(group)submit($('#peopleForm'),async values=>{
-      const members=[...$('#peopleForm').querySelectorAll('input[name=member]:checked')].map(i=>i.value);
-      if(!members.length)throw new Error('请选择至少一位成员');
-      const result=await api('/conversations','POST',{
-        kind:'group',name:values.name,members
-      }
-      );
-      $('#modal').close();
-      await refresh();
-      await select(result.conversation||result);
-    }
-    );
   }
+  function channelManager(c){return !!c&&(state.me?.admin||c.ownerId===state.me?.id);}
+  function channelWritable(c=state.current){return !!c&&((c.kind!=='group'&&c.kind!=='channel')||c.id==='lan-lobby'||(!c.archived&&(!c.restricted&&c.kind!=='channel'||c.ownerId===state.me?.id||(c.writers||[]).includes(state.me?.id))));}
+  function updateChannelControls(){
+    const c=state.current,isLobby=c?.id==='lan-lobby',isChannel=!state.peer&&(c?.kind==='group'||c?.kind==='channel')&&!isLobby,hasTabs=!!c,tab=hasTabs?(state.channelTab||'chat'):'chat';
+    $('#channelTabs').hidden=!hasTabs;$('#manageChannel').hidden=!isChannel||!channelManager(c);
+    $('#channelTabs').setAttribute('aria-label',isLobby?'大厅页面':isChannel?'群聊页面':'私聊页面');
+    $('#channelTabs').querySelectorAll('[data-channel-tab=members]').forEach(b=>b.hidden=!isChannel&&!isLobby);
+    $('#messages').hidden=tab!=='chat';$('#composer').hidden=tab!=='chat'||!channelWritable();
+    $('#messageSearch').hidden=tab!=='chat';$('#channelSurface').hidden=tab==='chat';
+    $('#channelTabs').querySelectorAll('[data-channel-tab]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.channelTab===tab));
+    $('#channelSurface').querySelectorAll('[data-space-upload]').forEach(b=>b.hidden=!channelWritable(c));
+    if(isLobby){$('#chatSubtitle').textContent=`${c.members.length} 位成员 · 局域网公开大厅`;$('#composerHint').textContent='公共大厅：同一服务的访客均可查看消息与文件';}
+    if(isChannel){$('#chatSubtitle').textContent=`${c.members.length} 位成员 · ${c.archived?'已归档':channelWritable(c)?(c.restricted?'可发布 · 消息与上传':'全员可发言上传'):'仅查看与下载'}${c.description?' · '+c.description:''}`;$('#composerHint').textContent='仅群成员可访问消息与文件';}
+  }
+  async function clearRevokedConversation(){
+    const id=state.current?.id;attachmentEpoch++;
+    state.revokedConversations=state.revokedConversations||new Set();state.revokedConversations.add(id);
+    state.current=null;
+    state.pending=state.pending.filter(m=>m.conversationId!==id);state.drafts.delete(id);state.previews.delete(id);state.unread.delete(id);state.seen.delete(id);state.olderMessages=[];state.messages=[];state.current=null;state.fingerprint='';
+    for(const cached of attachmentCache.values())if(cached.url){URL.revokeObjectURL(cached.url);urls.delete(cached.url);}attachmentCache.clear();
+    $('#messages').innerHTML='';$('#channelSurface').innerHTML='';$('#draft').value='';$('#chat').hidden=true;$('#empty').hidden=false;$('#modal').close();
+    document.body.classList.remove('chat-open');renderConversations();
+    await revokeConversationTransfers(id);
+  }
+  async function revokeConversationTransfers(id){
+    const releases=[];
+    for(const [key,job] of uploadTasks){
+      if(job.peer||job.conversation.id!==id)continue;
+      job.revoked=true;job.cancel=true;uploadTasks.delete(key);
+      if(!job.active){
+        if(job.file.handleId)releases.push(bridge.fileTransfer.cancel(job.file.handleId).catch(()=>{}));
+        if(job.file.archiveId)releases.push(rpc('im/archive-release',{id:job.file.archiveId}).catch(()=>{}));
+      }
+    }
+    for(const [key,job] of downloadTasks){
+      if(job.scope!=='room:'+id)continue;
+      job.revoked=true;downloadTasks.delete(key);
+      if(!job.active){
+        if(job.nativeHandle)releases.push(bridge.fileTransfer.cancel(job.nativeHandle.handleId).catch(()=>{}));
+        if(job.writer)releases.push(job.writer.abort().catch(()=>{}));
+      }
+    }
+    await Promise.allSettled(releases);
+  }
+  async function channelEditor(c=null){
+    if(c&&!channelManager(c))throw new Error('仅群主或本机管理员可以管理');
+    await refresh();
+    const people=state.users.filter(u=>!u.disabled&&u.id!==(c?.ownerId||state.me.id));
+    modal(c?'管理群聊':'新建群聊',`<form id="channelForm" class="form"><label>群聊名称<input name="name" maxlength="80" required value="${esc(c?.name||'')}" placeholder="例如：财务资料、项目协作"></label><label>群简介<textarea name="description" rows="2" maxlength="500">${esc(c?.description||'')}</textarea></label><label>发布权限<select name="restricted" id="groupPublishing"><option value="false">全员可发言上传</option><option value="true">仅群主与指定成员发布</option></select></label><p class="muted">群主始终可发布。限制发布时，可勾选指定成员的“允许发布”；其他成员仅查看和下载。新成员可查看全部群历史。</p><div class="channel-member-picker">${people.map(u=>`<div class="channel-member-choice"><label class="check"><input type="checkbox" data-channel-member value="${esc(u.id)}" ${c?.members.includes(u.id)?'checked':''}>${esc(u.nickname||u.username)} <small>${u.online?'在线':'离线'}</small></label><label class="check"><input type="checkbox" data-channel-writer value="${esc(u.id)}" ${(c?.writers||[]).includes(u.id)?'checked':''}>允许发布</label></div>`).join('')||'<p class="muted">暂无其他访客，可先创建群聊，再生成邀请。</p>'}</div>${c?`<label class="check"><input name="archived" type="checkbox" ${c.archived?'checked':''}>归档群聊（保留阅读，停止加入、消息和上传）</label>`:''}<button type="submit" class="primary">${c?'保存群聊':'创建群聊'}</button><button type="button" class="text" id="joinGroup">使用邀请加入群聊</button></form>${c?'<div class="actions channel-management"><button type="button" class="text" id="channelInvites">邀请管理</button><button type="button" class="text danger" id="dissolveChannel">解散群聊</button></div>':''}`);
+    $('#groupPublishing').value=String(c?.restricted??(c?.kind==='channel'));
+    const publishing=()=>$('#channelForm').querySelectorAll('[data-channel-writer]').forEach(b=>{b.disabled=$('#groupPublishing').value!=='true';});
+    $('#groupPublishing').onchange=publishing;publishing();$('#joinGroup').onclick=()=>channelJoinForm();
+    $('#channelForm').querySelectorAll('[data-channel-writer]').forEach(b=>b.onchange=()=>{if(b.checked)$('#channelForm').querySelector(`[data-channel-member][value="${b.value}"]`).checked=true;});
+    $('#channelForm').querySelectorAll('[data-channel-member]').forEach(b=>b.onchange=()=>{if(!b.checked)$('#channelForm').querySelector(`[data-channel-writer][value="${b.value}"]`).checked=false;});
+    submit($('#channelForm'),async values=>{
+      const members=[...$('#channelForm').querySelectorAll('[data-channel-member]:checked')].map(x=>x.value),writers=[...$('#channelForm').querySelectorAll('[data-channel-writer]:checked')].map(x=>x.value);
+      const result=await api(c?'/conversations/'+c.id:'/conversations',c?'PATCH':'POST',{kind:'group',restricted:values.restricted==='true',name:values.name,description:values.description,members,writers,archived:!!$('#channelForm').querySelector('[name=archived]')?.checked});
+      $('#modal').close();await refresh();await select(result);toast('群聊已保存');
+    });
+    if(c){$('#channelInvites').onclick=()=>channelInvitations(c).catch(e=>toast(e.message));$('#dissolveChannel').onclick=()=>{
+      modal('解散群聊',`<div class="form"><p>确认解散“${esc(c.name)}”？所有成员将失去消息和文件的服务端访问权限，邀请同时失效。</p><p class="muted">已下载的文件无法收回。服务器原始数据暂留，不立即释放磁盘空间。</p><div class="actions"><button type="button" class="text" id="cancelDissolve">取消</button><button type="button" class="primary danger-action" id="confirmDissolve">确认解散</button></div></div>`);
+      $('#cancelDissolve').onclick=()=>channelEditor(c);$('#confirmDissolve').onclick=async()=>{try{await api('/conversations/'+c.id+'/dissolve','POST',{});$('#modal').close();await refresh();toast('群聊已解散');}catch(e){toast(e.message);}};
+    };}
+  }
+  async function channelInvitations(c){
+    const response=await api('/conversations/'+c.id+'/invites');
+    modal('群聊邀请',`<div class="form"><p><strong>${esc(c.name)}</strong></p><p class="muted">默认不开启公开加入。仅在需要时创建邀请；持有链接的人可加入并阅读全部历史。加入后遵循群的发布权限。</p><form id="inviteChannelForm" class="form"><label>有效期<select name="hours"><option value="1">1 小时</option><option value="24" selected>24 小时</option><option value="168">7 天</option></select></label><label>可加入人数<input name="uses" type="number" min="1" max="100" value="1" required></label><button type="submit" class="primary" ${c.archived?'disabled':''}>生成邀请</button></form><div class="member-list">${(response.invites||[]).map(inv=>`<div class="person"><div class="grow"><strong>${inv.expires>Date.now()&&inv.uses>0?'有效邀请':'已失效'}</strong><p>剩余 ${inv.uses} 次 · ${esc(new Date(inv.expires).toLocaleString())}</p></div><button type="button" class="text" data-share-invite="${esc(inv.token)}">分享</button><button type="button" class="text danger" data-revoke-invite="${esc(inv.token)}">撤销</button></div>`).join('')||'<p class="muted">暂无邀请，当前仅指定成员可访问。</p>'}</div></div>`);
+    submit($('#inviteChannelForm'),async values=>{const inv=await api('/conversations/'+c.id+'/invites','POST',{hours:Number(values.hours),uses:Number(values.uses)});await shareChannelInvite(c,inv.token);});
+    $('#modalContent').querySelectorAll('[data-share-invite]').forEach(b=>b.onclick=()=>shareChannelInvite(c,b.dataset.shareInvite).catch(e=>toast(e.message)));
+    $('#modalContent').querySelectorAll('[data-revoke-invite]').forEach(b=>b.onclick=async()=>{try{await api('/conversations/'+c.id+'/invites/'+b.dataset.revokeInvite,'DELETE');await channelInvitations(c);toast('邀请已撤销');}catch(e){toast(e.message);}});
+  }
+  async function shareChannelInvite(c,key){
+    const status=bridge?await rpc('im/status'):null;
+    const candidates=[...new Set(bridge?(status.center?[status.center]:status.addresses||[]):[location.origin])];
+    const lan=candidates.filter(x=>!['127.0.0.1','localhost','[::1]'].includes(new URL(x).hostname));
+    const addresses=lan.length?lan:candidates;
+    if(!addresses.length)throw new Error('没有可分享的局域网地址');
+    modal('分享群聊邀请',`<div class="form"><p>${esc(c.name)} · 链接持有人可加入，发布权限由群设置决定</p>${!lan.length?'<p class="muted">当前仅有本机地址，其他设备需使用可访问的局域网地址。</p>':''}<div class="share-addresses">${addresses.map((address,index)=>{const url=new URL(address);url.hash='groupInvite='+encodeURIComponent(key);return `<div class="share-address"><label>邀请地址 ${index+1}</label><div class="share-address-row"><input readonly aria-label="群聊邀请地址 ${index+1}" value="${esc(url.href)}"><button type="button" class="text" data-copy-invite>复制</button><button type="button" class="text" data-qr-invite aria-expanded="false">二维码</button></div><div class="share-qr" data-invite-qr hidden></div></div>`;}).join('')}</div><button type="button" class="text" id="backInvites">返回邀请管理</button></div>`);
+    $('#backInvites').onclick=()=>channelInvitations(c).catch(e=>toast(e.message));
+    $('#modalContent').querySelectorAll('.share-address').forEach(row=>{const input=row.querySelector('input'),qr=row.querySelector('[data-invite-qr]'),button=row.querySelector('[data-qr-invite]');row.querySelector('[data-copy-invite]').onclick=async()=>{try{await navigator.clipboard.writeText(input.value);toast('邀请地址已复制');}catch(_){input.focus();input.select();let copied=false;try{copied=document.execCommand('copy')}catch(_){}toast(copied?'邀请地址已复制':'已选中，请按 Ctrl+C 复制');}};button.onclick=()=>{if(qr.hidden&&!qr.hasChildNodes()){if(typeof window.QRCode!=='function'){toast('二维码组件不可用');return;}new window.QRCode(qr,{text:input.value,width:190,height:190});}qr.hidden=!qr.hidden;button.setAttribute('aria-expanded',!qr.hidden);};});
+  }
+  function channelJoinForm(value=''){
+    modal('加入群聊',`<form id="joinChannelForm" class="form"><p class="muted">加入后可以查看群聊全部历史。请确认邀请来源，再加入。</p><label>邀请链接或邀请码<input name="invite" value="${esc(value)}" required autocomplete="off"></label><button type="submit" class="primary">确认加入</button></form>`);
+    submit($('#joinChannelForm'),async values=>{let key=values.invite.trim();try{const url=new URL(key);key=(new URLSearchParams(url.hash.slice(1)).get('groupInvite')||new URLSearchParams(url.hash.slice(1)).get('channelInvite'))||'';}catch(_){}if(!/^[a-f0-9]{64}$/.test(key))throw new Error('邀请链接或邀请码无效');const c=await api('/conversations/join','POST',{invite:key});$('#modal').close();await refresh();await select(c);if(!bridge)history.replaceState(null,'',location.pathname+location.search);toast('已加入群聊');});
+  }
+  async function acceptChannelInvitation(){
+    if(bridge)return;
+    const key=new URLSearchParams(location.hash.slice(1)).get('groupInvite')||new URLSearchParams(location.hash.slice(1)).get('channelInvite');
+    if(key)channelJoinForm(key);
+  }
+  async function channelTab(tab){
+    const c=state.current,isLobby=c?.id==='lan-lobby';if(!c||!['chat','files','members'].includes(tab))return;
+    if(tab==='members'&&(state.peer||(!isLobby&&!['group','channel'].includes(c.kind))))return;
+    state.channelTab=tab;updateChannelControls();
+    if(tab==='files'){if(state.peer)await filesPanel(true);else await conversationFileBrowser(true);}
+    if(tab==='members')renderChannelMembers();
+  }
+  function renderChannelMembers(){
+    const c=state.current;if(!c||state.channelTab!=='members')return;
+    const lobby=c.id==='lan-lobby';
+    $('#channelSurface').innerHTML=`<div class="channel-page-heading"><h3>${lobby?'大厅成员':'群成员'}</h3><p class="muted">${esc(lobby?'同一局域网服务中的访客':c.description||'仅成员可查看群聊内容')}</p></div>${c.members.map(id=>{const u=state.users.find(x=>x.id===id)||{nickname:'成员'};const role=lobby?(u.online?'在线':'离线'):id===c.ownerId?'群主':(!c.restricted&&c.kind!=='channel')||(c.writers||[]).includes(id)?'可发言 · 消息与上传':'只读 · 查看与下载';return `<div class="person">${avatar(u)}<div class="grow"><strong>${esc(u.nickname||u.username)}</strong><p>${role}</p></div></div>`;}).join('')||'<p class="list-empty">当前没有成员</p>'}`;
+  }
+  async function conversationFileBrowser(inline=false){
+    const c=state.current,epoch=sessionEpoch,prefix=attachmentPrefix(),scope=downloadScope();
+    const html=`<div class="form">${inline?`<div class="space-file-heading"><div><h3>${c.id==='lan-lobby'?'大厅文件':c.kind==='dm'?'私聊文件':'群文件'}</h3><p class="muted">${c.id==='lan-lobby'?'大厅成员共享的文件。':c.kind==='dm'?'双方在此私聊中发送的文件，仅对话双方可查看。':'本群发送的文件集中查看，支持搜索、分类与下载。'}</p></div><div class="actions"><button type="button" class="primary" data-space-upload="file" ${channelWritable(c)?'':'hidden'}>上传文件</button><button type="button" class="text" data-space-upload="folder" ${channelWritable(c)?'':'hidden'}>上传文件夹</button></div></div>`:''}<div class="file-filters"><input id="fileQuery" type="search" placeholder="搜索文件名称" aria-label="搜索文件名称"><select id="fileType" aria-label="文件类型"><option value="">全部类型</option><option value="document">文档</option><option value="image">图片</option></select><select id="fileSort" aria-label="文件排序"><option value="recent">最近共享</option><option value="name">文件名</option><option value="size">文件大小</option></select><button type="button" class="text" id="filterFiles">查询</button></div><div class="actions"><button type="button" class="text" id="downloadSelected">下载选中项</button><button type="button" class="text" id="downloadHistory">下载记录</button></div><p id="fileCount" class="muted"></p><div id="libraryFiles" class="file-list"></div><button type="button" class="text" id="moreFiles" hidden>加载更多</button></div>`;
+    if(inline)$('#channelSurface').innerHTML=html;else modal('当前会话文件',html);
+    const root=inline?$('#channelSurface'):$('#modalContent'),fileList=root.querySelector('#libraryFiles');let offset=0,request=0;const selected=new Set();
+    const load=async(reset=false)=>{
+      if(reset){offset=0;selected.clear();}const serial=++request;
+      const params=new URLSearchParams({limit:'30',offset:String(offset),q:root.querySelector('#fileQuery').value,type:root.querySelector('#fileType').value,sort:root.querySelector('#fileSort').value});
+      const response=await api('/conversations/'+c.id+'/files?'+params);
+      if(serial!==request||epoch!==sessionEpoch||state.current?.id!==c.id||root.querySelector('#libraryFiles')!==fileList||(inline&&state.channelTab!=='files'))return;
+      const rows=(response.files||[]).map(f=>`<div class="file-row"><input type="checkbox" data-library-select="${esc(f.id)}" aria-label="选择 ${esc(f.name)}">${IMHelpers.fileBadge(f.name)}<div class="grow"><strong>${esc(f.name)}</strong><small>${IMHelpers.size(f.size)} · ${esc(state.users.find(u=>u.id===f.senderId)?.nickname||'成员')} · ${esc(new Date(f.sharedAt).toLocaleString())}</small></div><button type="button" class="text" data-library-download="${esc(f.id)}">下载</button>${f.senderId===state.me?.id||channelManager(c)?'<button type="button" class="icon danger" data-library-delete="'+esc(f.id)+'" aria-label="删除文件" title="删除文件"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m4 4v7m6-7v7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>':''}</div>`).join('');
+      const list=root.querySelector('#libraryFiles');if(reset)list.innerHTML=rows||'<p class="list-empty">没有符合条件的文件</p>';else list.insertAdjacentHTML('beforeend',rows);
+      offset=response.nextOffset;root.querySelector('#moreFiles').hidden=!response.more;root.querySelector('#fileCount').textContent=`共 ${response.total} 个文件，已显示 ${offset} 个`;
+      list.querySelectorAll('[data-library-select]').forEach(b=>b.onchange=()=>b.checked?selected.add(b.dataset.librarySelect):selected.delete(b.dataset.librarySelect));
+      list.querySelectorAll('[data-library-download]').forEach(b=>b.onclick=()=>download(b.dataset.libraryDownload,prefix,null,scope).catch(e=>toast(e.message)));
+      list.querySelectorAll('[data-library-delete]').forEach(b=>b.onclick=()=>{
+        const file=(response.files||[]).find(item=>item.id===b.dataset.libraryDelete);
+        if(!file||epoch!==sessionEpoch||state.current?.id!==c.id)return;
+        modal('删除文件',`<div class="form"><p>确定从“${esc(c.name||'当前会话')}”删除文件“${esc(file.name)}”吗？</p><p class="muted">文件和对应的聊天消息会从所有会话成员的历史中移除，已下载的副本不会被删除。</p><div class="actions"><button type="button" class="text" id="cancelFileDelete">取消</button><button type="button" class="primary danger-action" id="confirmFileDelete">删除文件</button></div></div>`);
+        $('#cancelFileDelete').onclick=()=>$('#modal').close();
+        $('#confirmFileDelete').onclick=async()=>{try{await api('/conversations/'+encodeURIComponent(c.id)+'/files/'+encodeURIComponent(file.id),'DELETE');$('#modal').close();if(epoch!==sessionEpoch||state.current?.id!==c.id)return;await loadMessages(true);await load(true);toast('文件已删除');}catch(error){toast(error.message);}};
+      });
+    };
+    root.querySelectorAll('[data-space-upload]').forEach(b=>b.onclick=()=>{if(state.current?.id===c.id&&channelWritable(c))$(b.dataset.spaceUpload==='folder'?'#attachFolder':'#attach').click();});
+    root.querySelector('#filterFiles').onclick=()=>load(true).catch(e=>toast(e.message));root.querySelector('#moreFiles').onclick=()=>load().catch(e=>toast(e.message));
+    root.querySelector('#downloadHistory').onclick=()=>downloadHistoryPanel(scope).catch(e=>toast(e.message));
+    root.querySelector('#downloadSelected').onclick=async()=>{if(!selected.size){toast('请先选择文件');return;}for(const id of [...selected]){if(epoch!==sessionEpoch||state.current?.id!==c.id)break;try{await download(id,prefix,null,scope);}catch(e){toast(e.message);break;}}};
+    await load(true);
+  }
+
   async function profile(){
     modal('我的资料',`<form id="profileForm" class="form"><div class="person">${avatar(state.me)}<button type="button" class="text" id="changeAvatar">更换头像</button></div><label>昵称<input name="nickname" value="${esc(state.me.nickname)}" required maxlength="64"></label><label>个人简介<textarea name="bio" maxlength="280" rows="3">${esc(state.me.bio)}</textarea></label><p class="muted">你的昵称和头像会显示给局域网内的其他访客。</p><button type="submit" class="primary">保存资料</button></form>`);
     $('#changeAvatar').onclick=()=>$('#avatarInput').click();
@@ -512,9 +660,8 @@ function startIMClient() {
   }
   async function editGroup(){
     const c=state.current;
-    if(!c||c.id==='lan-lobby'||state.peer||c.kind!=='group'||!(state.me.admin||c.ownerId===state.me.id))return;
-    modal('管理群聊',`<form class="form" id="groupForm"><label>群聊名称<input name="name" value="${esc(c.name)}" required maxlength="80"></label><p class="muted">选择成员；创建者会保留在群聊内。</p>${state.users.filter(u=>!u.disabled).map(u=>`<label class="check"><input type="checkbox" name="member" value="${esc(u.id)}" ${c.members.includes(u.id)?'checked':''}>${esc(u.nickname||u.username)}</label>`).join('')}<button type="submit" class="primary">保存群聊</button></form>`);
-    submit($('#groupForm'),async values=>{const members=[...$('#groupForm').querySelectorAll('input[name=member]:checked')].map(i=>i.value);await api('/conversations/'+encodeURIComponent(c.id),'PATCH',{name:values.name,members});$('#modal').close();await refresh();const updated=state.conversations.find(x=>x.id===c.id);if(updated)await select(updated);});
+    if(!c||c.id==='lan-lobby'||state.peer||!['group','channel'].includes(c.kind)||!channelManager(c))return;
+    await channelEditor(c);
   }
   $('#chatTitle').onclick=()=>editGroup().catch(e=>toast(e.message));
   function bindSettingsTabs(root){
@@ -688,16 +835,16 @@ function startIMClient() {
         job.offset=offset+bytes.length;
         $('#transfer progress').value=Math.round((offset+bytes.length)/file.size*100);
       }
-      if(job.cancel)throw new Error('上传已取消');
+      if(job.cancel||job.revoked)throw new Error('上传已取消');
       if(!job.finished)await api(`${prefix}/${encodeURIComponent(job.id)}/finish`,'POST',{
         sha256:hash.hex()
       }
       );
       job.finished=true;
-      if(await send('',job.id,conversation,peer)){toast('文件已发送');job.done=true;uploadTasks.delete(job.key);}
+      if(await send('',job.id,conversation,peer)){toast('文件已发送');job.done=true;uploadTasks.delete(job.key);if(!peer&&state.current?.id===conversation.id&&state.channelTab==='files')await conversationFileBrowser(true).catch(e=>toast('文件已上传，列表刷新失败：'+e.message));}
     }
     catch(e){
-      if(epoch!==sessionEpoch)return;
+      if(epoch!==sessionEpoch||job.revoked)return;
       toast(e.message);
       {
         modal('上传已暂停',`<div class="form"><p class="error">${esc(e.message)}</p><p>${esc(file.name)} · 已确认 ${IMHelpers.size(job.offset||0)}</p><button type="button" class="primary" id="retryUpload">继续上传</button></div>`);
@@ -711,8 +858,8 @@ function startIMClient() {
     finally{
       job.active=false;
       if(state.upload===job)state.upload=null;
-      if((job.done||epoch!==sessionEpoch)&&file.handleId)await bridge.fileTransfer.cancel(file.handleId).catch(()=>{});
-      if((job.done||epoch!==sessionEpoch)&&file.archiveId)await rpc('im/archive-release',{id:file.archiveId}).catch(()=>{});
+      if((job.done||job.revoked||epoch!==sessionEpoch)&&file.handleId)await bridge.fileTransfer.cancel(file.handleId).catch(()=>{});
+      if((job.done||job.revoked||epoch!==sessionEpoch)&&file.archiveId)await rpc('im/archive-release',{id:file.archiveId}).catch(()=>{});
       if(epoch!==sessionEpoch)return;
       $('#transfer').hidden=true;
       $('#attach').disabled=false;
@@ -762,6 +909,7 @@ function startIMClient() {
   async function download(id,prefix=attachmentPrefix(),resume=null,scope=downloadScope()){
     const epoch=sessionEpoch;
     const result=await api(prefix+'/'+encodeURIComponent(id)),file=result.attachment||result;
+    if(scope.startsWith('room:')&&state.revokedConversations?.has(scope.slice(5)))throw new Error('群聊访问权限已撤销');
     const key=epoch+':'+prefix+'/'+id;
     if(!resume&&downloadTasks.has(key))resume=downloadTasks.get(key);
     if(resume?.active){toast('该文件正在下载');return;}
@@ -792,6 +940,11 @@ function startIMClient() {
       if(url.origin!==location.origin||!url.pathname.startsWith('/api/im/'))throw new Error('无效下载地址');
       const link=document.createElement('a');link.href=url.href;link.download=file.name;link.rel='noreferrer';document.body.append(link);link.click();link.remove();await recordDownload({id,prefix,file,scope,epoch,offset:0},'browser');toast('已交给浏览器保存文件，完成状态请查看浏览器下载列表');return;
     }
+    if(scope.startsWith('room:')&&state.revokedConversations?.has(scope.slice(5))){
+      if(nativeHandle)await bridge.fileTransfer.cancel(nativeHandle.handleId).catch(()=>{});
+      if(writer)await writer.abort().catch(()=>{});
+      throw new Error('群聊访问权限已撤销');
+    }
     const job=resume||{key,id,prefix,file,writer,nativeHandle,hash:new SHA256(),offset:0,epoch,scope};
     job.active=true;downloadTasks.set(key,job);
     const hash=job.hash;
@@ -803,8 +956,9 @@ function startIMClient() {
     ;
     try{
       while(offset<file.size){
-        if(epoch!==sessionEpoch||cancel||!$('#modal').open)throw new Error('下载已取消');
+        if(job.revoked||epoch!==sessionEpoch||cancel||!$('#modal').open)throw new Error('下载已取消');
         const part=await api(`${prefix}/${encodeURIComponent(id)}/chunks?offset=${offset}&length=262144`);
+        if(job.revoked)throw new Error('群聊访问权限已撤销');
         const bytes=unbase64(part.dataBase64);
         if(!bytes.length||bytes.length>262144)throw new Error('无效的文件块');
         if(nativeHandle){
@@ -820,7 +974,7 @@ function startIMClient() {
         if(progress)progress.value=offset/file.size*100;
       }
       if(file.sha256&&hash.hex()!==file.sha256)throw new Error('文件校验失败，请重新下载');
-      if(epoch!==sessionEpoch)throw new Error('会话已切换');
+      if(job.revoked||epoch!==sessionEpoch)throw new Error('群聊访问权限已撤销');
       job.saving=true;
       if(nativeHandle){await bridge.fileTransfer.finish(nativeHandle.handleId);await recordDownload(job,'saved');downloadTasks.delete(key);$('#modal').close();toast('文件已保存并通过校验');return;}
       if(writer){
@@ -835,7 +989,7 @@ function startIMClient() {
     catch(e){
       const fatal=job.saving||/校验失败/.test(e.message);
       await recordDownload(job,fatal?'failed':'paused',e.message);
-      if(epoch!==sessionEpoch||fatal){downloadTasks.delete(key);if(nativeHandle)await bridge.fileTransfer.cancel(nativeHandle.handleId).catch(()=>{});if(writer)await writer.abort().catch(()=>{});throw e;}
+      if(job.revoked||epoch!==sessionEpoch||fatal){downloadTasks.delete(key);if(nativeHandle)await bridge.fileTransfer.cancel(nativeHandle.handleId).catch(()=>{});if(writer)await writer.abort().catch(()=>{});throw e;}
       modal('下载已暂停',`<div class="form"><p>${esc(file.name)}</p><p class="muted">${esc(e.message)} · 已接收 ${IMHelpers.size(job.offset)}</p><button type="button" class="primary" id="resumeDownload">继续下载</button></div>`);
       $('#resumeDownload').onclick=()=>download(id,prefix,job).catch(err=>toast(err.message));
     } finally {
@@ -882,6 +1036,8 @@ function startIMClient() {
   }
   ;
   $('#conversationSearch').oninput=renderConversations;
+  $('#manageChannel').onclick=()=>channelEditor(state.current).catch(e=>toast(e.message));
+  $('#channelTabs').querySelectorAll('[data-channel-tab]').forEach(button=>button.onclick=()=>channelTab(button.dataset.channelTab).catch(e=>toast(e.message)));
   $('#contacts').onclick=$('#startChat').onclick=()=>contacts().catch(e=>toast(e.message));
   $('#newChat').onclick=()=>contacts(true).catch(e=>toast(e.message));
   $('#profile').onclick=()=>state.me&&profile();
@@ -894,18 +1050,18 @@ function startIMClient() {
   $('#attachFolder').onclick=async()=>{
     if(!state.current||state.upload){toast('请先选择会话，并等待当前上传结束');return;}
     if(!bridge){$('#folderInput').click();return;}
-    const epoch=sessionEpoch,conversation=state.current;let id;
+    const epoch=sessionEpoch,conversationId=state.current.id,peer=state.peer;let id;
     state.folderPreparing=true;$('#attachFolder').disabled=true;$('#attach').disabled=true;
     try{
       const picked=await withTimeout(bridge.invoke('im/archive-pick',{}, {timeoutMs:125000}),125000,'选择文件夹超时');if(picked.cancelled)return;id=picked.id;toast('正在打包文件夹，完成后自动上传…');
       let result;for(;;){result=await rpc('im/archive-status',{id});if(result.ready)break;await new Promise(r=>setTimeout(r,500));}
-      if(result.error)throw new Error(result.error);if(epoch!==sessionEpoch||state.current!==conversation)throw new Error('会话已切换，请重新选择文件夹');
+      if(result.error)throw new Error(result.error);if(epoch!==sessionEpoch||state.current?.id!==conversationId||state.peer!==peer)throw new Error('会话已切换，请重新选择文件夹');
       await upload({archiveId:id,name:result.name,size:result.size,type:'application/zip'});id=null;
     }catch(err){toast(err.message);if(id)await rpc('im/archive-release',{id}).catch(()=>{});}
     finally{state.folderPreparing=false;$('#attachFolder').disabled=false;$('#attach').disabled=false;}
   };
   $('#emoji').onclick=()=>emojiPanel().catch(e=>toast(e.message));
-  $('#chatFiles').onclick=()=>{if(state.current)filesPanel().catch(e=>toast(e.message));};
+  $('#chatFiles').onclick=()=>{if(state.current)channelTab('files').catch(e=>toast(e.message));};
   $('#transferTasks').onclick=()=>{
     const uploads=[...uploadTasks.values()].filter(j=>j.epoch===sessionEpoch),downloads=[...downloadTasks.values()].filter(j=>j.epoch===sessionEpoch);
     modal('传输任务',`<div class="form"><p class="muted">暂停或网络中断后可继续当前窗口中的任务。关闭插件窗口后，需要重新选择文件。</p>${uploads.map(j=>`<div class="file-row"><div class="grow"><strong>上传 · ${esc(j.file.name)}</strong><small>${IMHelpers.size(j.offset||0)} / ${IMHelpers.size(j.file.size)}</small></div><button type="button" class="text" data-resume-upload="${j.key}" ${j.active?'disabled':''}>${j.active?'传输中':'继续'}</button></div>`).join('')}${downloads.map((j,i)=>`<div class="file-row"><div class="grow"><strong>下载 · ${esc(j.file.name)}</strong><small>${IMHelpers.size(j.offset)} / ${IMHelpers.size(j.file.size)}</small></div><button type="button" class="text" data-resume-download="${i}" ${j.active?'disabled':''}>${j.active?'传输中':'继续'}</button></div>`).join('')}${!uploads.length&&!downloads.length?'<p class="list-empty">暂无未完成的传输</p>':''}</div>`);
@@ -915,7 +1071,7 @@ function startIMClient() {
   $('#fileInput').onchange=e=>{
     if(e.target.files[0])upload(e.target.files[0]);
   }
-  $('#folderInput').onchange=async e=>{if(!state.current||state.upload)return;const epoch=sessionEpoch,conversation=state.current;$('#attachFolder').disabled=true;try{toast('正在整理文件夹…');const archive=await IMArchive.folder([...e.target.files]);if(epoch!==sessionEpoch||state.current!==conversation)throw new Error('会话已切换，请重新选择文件夹');await upload(archive)}catch(err){toast(err.message)}finally{$('#attachFolder').disabled=false;e.target.value=''}};
+  $('#folderInput').onchange=async e=>{if(!state.current||state.upload)return;const epoch=sessionEpoch,conversationId=state.current.id,peer=state.peer;$('#attachFolder').disabled=true;try{toast('正在整理文件夹…');const archive=await IMArchive.folder([...e.target.files]);if(epoch!==sessionEpoch||state.current?.id!==conversationId||state.peer!==peer)throw new Error('会话已切换，请重新选择文件夹');await upload(archive)}catch(err){toast(err.message)}finally{$('#attachFolder').disabled=false;e.target.value=''}};
   ;
   $('#cancelUpload').onclick=()=>{
     if(state.upload)state.upload.cancel=true;

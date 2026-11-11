@@ -54,7 +54,7 @@ func validIMPath(raw string) bool {
 	if e != nil || u.IsAbs() || u.Host != "" || u.Fragment != "" || !strings.HasPrefix(u.Path, "/") || strings.Contains(u.Path, "\\") || strings.Contains(u.Path, "..") {
 		return false
 	}
-	for _, prefix := range []string{"/status", "/guest", "/logout", "/me", "/users", "/conversations", "/attachments", "/stickers", "/downloads", "/peers"} {
+	for _, prefix := range []string{"/status", "/guest", "/logout", "/me", "/users", "/conversations", "/channels", "/attachments", "/stickers", "/downloads", "/peers"} {
 		if u.Path == prefix || strings.HasPrefix(u.Path, prefix+"/") {
 			return true
 		}

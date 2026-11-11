@@ -41,13 +41,17 @@ type invite struct {
 	Expires int64  `json:"expires"`
 }
 type Conversation struct {
-	OwnerID   string   `json:"ownerId"`
-	Unread    int      `json:"unread"`
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Kind      string   `json:"kind"`
-	Members   []string `json:"members"`
-	UpdatedAt int64    `json:"updatedAt"`
+	Restricted  bool     `json:"restricted"`
+	Description string   `json:"description,omitempty"`
+	Archived    bool     `json:"archived"`
+	Writers     []string `json:"writers,omitempty"`
+	OwnerID     string   `json:"ownerId"`
+	Unread      int      `json:"unread"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Kind        string   `json:"kind"`
+	Members     []string `json:"members"`
+	UpdatedAt   int64    `json:"updatedAt"`
 }
 type Message struct {
 	ID             string `json:"id"`
@@ -73,6 +77,7 @@ type storedAttachment struct {
 	OwnerID string
 }
 type diskState struct {
+	ChannelInvites map[string]channelInvite
 	GuestHostID    string
 	GuestHostToken string
 	Users          map[string]account
@@ -143,6 +148,21 @@ func NewWithFiles(dir, files string) (*Service, error) {
 	}
 	if d.Hidden == nil {
 		d.Hidden = map[string]bool{}
+	}
+	// Consolidate old spaces without changing IDs, files, invites or readership.
+	migrated := false
+	for id, c := range d.Conversations {
+		if c.Kind == "channel" {
+			c.Kind = "group"
+			c.Restricted = true
+			d.Conversations[id] = c
+			migrated = true
+		}
+	}
+	if migrated {
+		if e := s.save(); e != nil {
+			return nil, e
+		}
 	}
 	return s, nil
 }

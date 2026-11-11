@@ -916,3 +916,23 @@ body.chat-open main {
 .share-qr{margin:14px auto 0;padding:16px;background:#fff;border:1px solid var(--line);border-radius:12px;width:224px;max-width:100%;box-sizing:border-box}
 .share-qr img,.share-qr canvas{max-width:100%;height:auto}
 @media(max-width:420px){.share-address{padding:10px}.share-address-row{flex-wrap:wrap}.share-address-row input{flex-basis:100%}.settings-tabs button{font-size:13px}}
+/* Channel workspaces share the plugin's own theme tokens. */
+.space-file-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.space-file-heading h3{margin:0 0 8px;font-size:19px}.space-file-heading p{margin:0;line-height:1.7;max-width:420px}
+.space-file-heading .actions{margin:0;flex-wrap:wrap}.space-file-heading button{white-space:nowrap}
+.channel-tabs{display:flex;align-items:center;gap:6px;padding:10px 26px;border-bottom:1px solid var(--line);background:var(--card);flex-shrink:0}
+.channel-tabs>[data-channel-tab]{padding:9px 18px;border-radius:8px;color:var(--muted);font-weight:600}
+.channel-tabs>[aria-pressed=true]{color:var(--accent);background:var(--soft)}
+.channel-tabs>#manageChannel{margin-left:auto;font-size:12px}
+.channel-surface{flex:1;min-height:0;overflow:auto;padding:24px 28px;background:var(--bg)}
+.channel-surface>.form{background:var(--card);padding:20px;border:1px solid var(--line);border-radius:14px}
+.channel-page-heading{margin-bottom:18px}.channel-page-heading h3{margin:0 0 8px;font-size:20px}
+.channel-member-picker{max-height:32vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:4px 12px;background:var(--bg)}
+.channel-member-choice{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+.channel-member-choice:last-child{border-bottom:0}.channel-member-choice .check{font-size:12px;line-height:1.5}
+.channel-management{border-top:1px solid var(--line);padding-top:14px;margin-top:18px}
+.file-filters{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.file-filters input{flex:1;min-width:140px}
+.file-filters select,.form select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);padding:10px;border-radius:8px}
+.file-filters select{font-size:12px}.channel-surface .file-list{max-height:none}.file-row>input[type=checkbox]{accent-color:var(--accent);width:17px;height:17px;flex-shrink:0}
+#channelSurface .person{border-bottom:1px solid var(--line)}
+@media(max-width:650px){.channel-tabs{padding:9px 12px;gap:2px}.channel-tabs>[data-channel-tab]{padding:9px 12px}.channel-surface{padding:12px}.channel-surface>.form{padding:14px}.chat-header .grow{min-width:0}.chat-header h2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.channel-member-choice{flex-wrap:wrap}#chatTitle{cursor:pointer}.chat-header input{width:100px}}

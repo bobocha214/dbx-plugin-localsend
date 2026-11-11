@@ -13,6 +13,10 @@ import (
 )
 
 type input struct {
+	Restricted     *bool    `json:"restricted"`
+	Description    *string  `json:"description"`
+	Archived       *bool    `json:"archived"`
+	Writers        []string `json:"writers"`
 	Username       string   `json:"username"`
 	Password       string   `json:"password"`
 	OldPassword    string   `json:"oldPassword"`
@@ -119,6 +123,21 @@ func (s *Service) route(method, path, token string, body json.RawMessage, local 
 		s.presence = map[string]int64{}
 	}
 	s.presence[a.ID] = now()
+	if path == "/conversations/join" && method == "POST" {
+		return s.channelRoute(method, "/channels/join", a, b)
+	}
+	if strings.HasPrefix(path, "/conversations/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/conversations/"), "/")
+		if len(parts) >= 2 && parts[1] == "invites" {
+			return s.channelRoute(method, "/channels/"+strings.Join(parts, "/"), a, b)
+		}
+		if len(parts) == 2 && parts[1] == "dissolve" && method == "POST" {
+			return s.channelRoute("DELETE", "/channels/"+parts[0], a, b)
+		}
+	}
+	if path == "/channels" || strings.HasPrefix(path, "/channels/") {
+		return s.channelRoute(method, path, a, b)
+	}
 	if strings.HasPrefix(path, "/peers") && s.peerRequest != nil {
 		if !local || !a.Admin {
 			return failure(403, "peer controls require the local administrator")
@@ -292,6 +311,19 @@ func (s *Service) route(method, path, token string, body json.RawMessage, local 
 				}
 			}
 			c := Conversation{ID: randomID(), Name: b.Name, Kind: b.Kind, Members: members, UpdatedAt: now(), OwnerID: a.ID}
+			if b.Kind == "group" {
+				if len(strings.TrimSpace(b.Name)) == 0 || len(inputDescription(b)) > 2000 {
+					return failure(400, "invalid group")
+				}
+				c.Description = inputDescription(b)
+				if b.Restricted != nil {
+					c.Restricted = *b.Restricted
+				}
+				if !s.setChannelMembers(&c, b) {
+					return failure(400, "invalid group members or contributors")
+				}
+			}
+
 			s.state.Conversations[c.ID] = c
 			return 200, c
 		}
@@ -320,36 +352,37 @@ func (s *Service) route(method, path, token string, body json.RawMessage, local 
 			if c.ID == "lan-lobby" {
 				return failure(409, "public lobby membership is automatic")
 			}
-			if c.Kind != "group" || !a.Admin && c.OwnerID != a.ID {
-				return failure(403, "group owner required")
-			}
-			if len(b.Name) > 200 || len(b.Members) > 100 {
-				return failure(400, "invalid group")
-			}
-			if b.Name != "" {
-				c.Name = b.Name
-			}
-			if b.Members != nil {
-				members := []string{c.OwnerID}
-				seen := map[string]bool{c.OwnerID: true}
-				for _, id := range b.Members {
-					u, ok := s.state.Users[id]
-					if !ok || u.Disabled {
-						return failure(400, "invalid member")
-					}
-					if !seen[id] {
-						members = append(members, id)
-						seen[id] = true
-					}
-				}
-				c.Members = members
-			}
-			c.UpdatedAt = now()
-			s.state.Conversations[c.ID] = c
-			return 200, c
+			return s.channelRoute(method, "/channels/"+c.ID, a, b)
 		}
 		if len(parts) == 2 && parts[1] == "read" && method == "POST" {
 			s.state.Reads[a.ID+":"+c.ID] = now()
+			return 200, map[string]any{"ok": true}
+		}
+		if len(parts) == 2 && parts[1] == "files" && method == "GET" {
+			return s.conversationFiles(c, uurl)
+		}
+		if len(parts) == 3 && parts[1] == "files" && method == "DELETE" {
+			attachment, exists := s.state.Attachments[parts[2]]
+			if !exists || attachment.ConversationID != c.ID || !attachment.Finished {
+				return failure(404, "attachment not found")
+			}
+			if attachment.OwnerID != a.ID && (c.OwnerID != a.ID && !a.Admin) {
+				return failure(403, "仅文件发送者、群主或本机管理员可以删除")
+			}
+			messages := s.state.Messages[c.ID][:0]
+			for _, message := range s.state.Messages[c.ID] {
+				if message.AttachmentID != attachment.ID {
+					messages = append(messages, message)
+				}
+			}
+			s.state.Messages[c.ID] = messages
+			delete(s.state.Attachments, attachment.ID)
+			for key, ticket := range s.downloadTickets {
+				if ticket.AttachmentID == attachment.ID {
+					delete(s.downloadTickets, key)
+				}
+			}
+			s.pendingDeletes = append(s.pendingDeletes, attachment.ID)
 			return 200, map[string]any{"ok": true}
 		}
 		if len(parts) == 2 && parts[1] == "messages" {
@@ -378,6 +411,9 @@ func (s *Service) route(method, path, token string, body json.RawMessage, local 
 				return 200, map[string]any{"messages": list, "total": total, "more": more}
 			}
 			if method == "POST" {
+				if !canContribute(c, a.ID) {
+					return failure(403, "群聊只读或已归档")
+				}
 				if len(b.ID) < 1 || len(b.ID) > 128 || len(b.Text) > 20000 || strings.TrimSpace(b.Text) == "" && b.AttachmentID == "" {
 					return failure(400, "invalid message")
 				}
@@ -438,7 +474,7 @@ func (s *Service) Handler() http.Handler {
 			return
 		}
 		if !strings.HasPrefix(r.URL.Path, "/api/im/") {
-			allowed := r.URL.Path == "/" || r.URL.Path == "/index.html" || r.URL.Path == "/im.js" || r.URL.Path == "/im.css" || r.URL.Path == "/vendor/qrcode.min.js"
+			allowed := r.URL.Path == "/" || r.URL.Path == "/index.html" || r.URL.Path == "/im.js" || r.URL.Path == "/im.css" || r.URL.Path == "/im-archive.js" || r.URL.Path == "/vendor/qrcode.min.js"
 			if ui != nil && allowed {
 				http.FileServer(http.FS(ui)).ServeHTTP(w, r)
 			} else {

@@ -53,7 +53,7 @@
 </div>
 <footer>
 <span id="connection" class="connection">正在连接…</span>
-<span class="muted">邻间 0.1.2</span>
+<span class="muted">邻间 0.2.1</span>
 </footer>
 </aside>
 <main id="main">
@@ -89,6 +89,13 @@
 <input id="messageSearch" type="search" placeholder="搜索聊天记录" aria-label="搜索聊天记录">
 <button id="chatFiles" class="icon file-history-icon" type="button" title="当前会话文件" aria-label="当前会话文件"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v13H4zM3 4h18v3H3zM8 11h8M8 15h5"/></svg></button>
 </header>
+<nav id="channelTabs" class="channel-tabs" aria-label="会话页面" hidden>
+<button type="button" data-channel-tab="chat" aria-pressed="true">聊天</button>
+<button type="button" data-channel-tab="files" aria-pressed="false">文件</button>
+<button type="button" data-channel-tab="members" aria-pressed="false">成员</button>
+<button type="button" id="manageChannel" class="text">管理群聊</button>
+</nav>
+<div id="channelSurface" class="channel-surface" hidden></div>
 <div id="searchNotice" hidden class="notice">
 </div>
 <div id="messages" class="messages" role="log" aria-live="polite">
