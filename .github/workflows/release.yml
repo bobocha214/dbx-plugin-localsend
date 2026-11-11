@@ -29,8 +29,8 @@ jobs:
         include:
           - { target: windows-x64, runner: windows-latest }
           - { target: windows-arm64, runner: windows-latest }
-          - { target: macos-x64, runner: macos-latest }
-          - { target: macos-arm64, runner: macos-latest }
+          - { target: darwin-x64, runner: macos-latest }
+          - { target: darwin-arm64, runner: macos-latest }
           - { target: linux-x64, runner: ubuntu-latest }
           - { target: linux-arm64, runner: ubuntu-latest }
     defaults:
@@ -123,7 +123,7 @@ jobs:
           ./scripts/validate-release.ps1 -Tag $env:RELEASE_TAG
           $version = $env:RELEASE_TAG.Substring(1)
           $assets = @()
-          foreach ($target in @('windows-x64','windows-arm64','macos-x64','macos-arm64','linux-x64','linux-arm64')) {
+          foreach ($target in @('windows-x64','windows-arm64','darwin-x64','darwin-arm64','linux-x64','linux-arm64')) {
             $base = "release-assets/io.github.yuzhi.localsend-$version-$target"
             foreach ($suffix in @('.dbxp','.dbxp.sha256','.artifact.json')) {
               $file = "$base$suffix"

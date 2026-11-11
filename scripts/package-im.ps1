@@ -1,6 +1,6 @@
 param(
     [string]$Version = '',
-    [ValidateSet('windows-x64','windows-arm64','macos-x64','macos-arm64','linux-x64','linux-arm64')]
+    [ValidateSet('windows-x64','windows-arm64','darwin-x64','darwin-arm64','linux-x64','linux-arm64')]
     [string]$Target = 'windows-x64'
 )
 $ErrorActionPreference = 'Stop'
@@ -14,6 +14,7 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 $stage = Join-Path $output ('im-stage-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $stage 'bin') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repo 'manifest.json') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repo 'assets') -Destination $stage -Recurse
 New-Item -ItemType Directory -Path (Join-Path $stage 'ui') | Out-Null
 foreach ($name in @('index.html','im.css','im.js','im-archive.js')) {
@@ -23,7 +24,7 @@ Copy-Item -LiteralPath (Join-Path $repo 'ui/vendor') -Destination (Join-Path $st
 $manifest = Get-Content (Join-Path $stage 'manifest.json') -Raw | ConvertFrom-Json
 if ($manifest.version -ne $Version) { throw 'Manifest version mismatch' }
 $platform, $architecture = $Target.Split('-')
-$goOS = if ($platform -eq 'macos') { 'darwin' } else { $platform }
+$goOS = $platform
 $goArchitecture = if ($architecture -eq 'x64') { 'amd64' } else { 'arm64' }
 $binary = if ($platform -eq 'windows') { 'bin/dbx-plugin-localsend.exe' } else { 'bin/dbx-plugin-localsend' }
 $manifest.entrypoints.backend.executable = $binary

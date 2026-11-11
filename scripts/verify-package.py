@@ -38,7 +38,7 @@ def verify(path):
         elif platform == 'linux':
             assert data[:6] == b'\x7fELF\x02\x01'
             assert struct.unpack_from('<H', data, 18)[0] == {'x64': 62, 'arm64': 183}[arch]
-        elif platform == 'macos':
+        elif platform == 'darwin':
             assert data[:4] == b'\xcf\xfa\xed\xfe'
             assert struct.unpack_from('<I', data, 4)[0] == {'x64': 0x01000007, 'arm64': 0x0100000c}[arch]
         else:
